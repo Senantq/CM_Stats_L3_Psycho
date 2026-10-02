@@ -41,7 +41,7 @@ _quarto.yml
 
 ## Objectif pédagogique
 
-Les cours présentent progressivement les tests statistiques à partir du **modèle linéaire**, avec un accent sur l’intuition statistique, les représentations graphiques, les tailles d’effet, l’interprétation et le report des résultats.
+Les cours présentent progressivement les tests statistiques à partir du modèle linéaire (généralisé), avec un accent sur l’intuition statistique, les représentations graphiques, les tailles d’effet, l’interprétation et le report des résultats.
 
 Les exemples sont principalement issus ou inspirés de la psychologie et de la neuropsychologie.
 
