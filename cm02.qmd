@@ -1,0 +1,1832 @@
+---
+title: "CM n°2 : Les Bases de l’ANOVA"
+subtitle: "De la décomposition de la variance à sa visualisation et son interprétation"
+
+author:
+  - name: "Quentin Sénant"
+    email: "quentin.senant@univ-grenoble-alpes.fr"
+    affiliations:
+      - name: "Université Grenoble Alpes"
+
+lang: fr-FR
+date-format: "D MMMM YYYY"
+description: "Cours magistral de statistique — Licence 3 Psychologie"
+---
+
+## Plan du CM {.sommaire .sommaire-cm1}
+
+```{r}
+#| label: setup
+#| include: false
+
+suppressPackageStartupMessages({
+  library(ggplot2); library(patchwork);library(dplyr); library(tidyr); library(grid); library(ragg); library(ggpattern);library(plotly); library(htmlwidgets)})
+
+couleurs <- list(fond = "#3f4d53", bleu = "#5b5be7", bleu_clair = "#d9d9ff", turquoise = "#159c91", rouge = "#d9534f",
+  
+  dark <- "#000000", gris <- "#36454A", orange <- "#E69F55", blue <- "#6666E8",
+  red <- "#D95F5F", green  <- "#2A9D8F", grey <- "#A7B0B3")
+
+theme_set(theme_minimal(base_family = "CMU Serif") +  # police LaTeX
+    theme(
+      # Titre du plot en gras, centré, et taille 18
+      plot.title = element_text(hjust = 0.5, family = "CMU Serif", size = 18, face = "bold"),
+      # Titres des axes en gras et taille 14
+      axis.title.x = element_text(size = 14, family = "CMU Serif", face = "bold", colour=dark),
+      axis.title.y = element_text(size = 14, family = "CMU Serif", face = "bold", colour=dark),
+      # Texte des axes, taille 14
+      axis.text.x = element_text(size = 14, family = "CMU Serif"),
+      axis.text.y = element_text(size = 14, family = "CMU Serif"),
+      # Légende : position supra, taille 12
+      legend.position = "top",
+      legend.title = element_text(size = 14),
+      legend.text = element_text(size = 12),
+      # Grilles horizontale seulement pour les axes
+      panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),
+      panel.grid.minor.y = element_line(color = "gray", linewidth = 0.5),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      # Marges (10,10,10,10) du plot
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10),
+      # Texte des facettes
+      strip.text = element_text(size = 14, family = "CMU Serif")))
+set.seed(20260901)
+
+summarise_ci <- function(data, groups, outcome, level = .95) {
+  alpha <- 1 - level
+  data |>
+    group_by(across(all_of(groups))) |>
+    summarise(n = sum(!is.na(.data[[outcome]])),
+      mean = mean(.data[[outcome]], na.rm = TRUE), sd = sd(.data[[outcome]], na.rm = TRUE), se = sd / sqrt(n),
+      lower = mean - qt(1 - alpha / 2, df = n - 1) * se, upper = mean + qt(1 - alpha / 2, df = n - 1) * se,
+      .groups = "drop")}
+
+
+# Exemple one-sample : n = 10, m = 47, s = 11.7 exactement.
+z_tiktok <- scale(c(-1.45,-.92,-.60,-.25,-.05,.20,.42,.70,.95,1.25))[,1]
+tiktok <- tibble(i=1:10, y=47 + 11.7*z_tiktok)
+mu0 <- 30; m_tiktok <- mean(tiktok$y); s_tiktok <- sd(tiktok$y)
+
+# Exemple ANOVA : n = 10 par modalité, moyennes 7 / 16 / 16 et s = 3 exactement.
+z_anova <- scale(c(-1.55,-1.10,-.72,-.38,-.12,.13,.43,.73,1.02,1.56))[,1]
+anova_df <- bind_rows(
+  tibble(groupe="TCC", y=7 + 3*z_anova),
+  tibble(groupe="Psychodynamique", y=16 + 3*z_anova),
+  tibble(groupe="Contrôle", y=16 + 3*z_anova)
+) |> mutate(groupe=factor(groupe,levels=c("TCC","Psychodynamique","Contrôle")))
+mean_general <- mean(anova_df$y)
+ss_model <- sum(table(anova_df$groupe)*(tapply(anova_df$y,anova_df$groupe,mean)-mean_general)^2)
+ss_error <- sum((anova_df$y-ave(anova_df$y,anova_df$groupe))^2)
+ss_total <- sum((anova_df$y-mean_general)^2)
+ms_model <- ss_model/2; ms_error <- ss_error/27; f_obs <- ms_model/ms_error
+eta2 <- ss_model/ss_total; omega2 <- (ss_model-2*ms_error)/(ss_total+ms_error)
+```
+
+::: {.sommaire-grille}
+::: {.sommaire-colonne .sommaire-gauche}
+[1.]{.sommaire-numero} [Le LM des *t*-tests : Visualisation et Interprétation]{.sommaire-texte}
+
+[2.]{.sommaire-numero} [Décomposer la variance d'un *t*-test]{.sommaire-texte}
+
+[3.]{.sommaire-numero} [L’ANOVA à 1 facteur]{.sommaire-texte}
+:::
+
+::: {.sommaire-colonne .sommaire-droite}
+[4.]{.sommaire-numero} [Décomposition, Visualisation et Interprétation]{.sommaire-texte}
+
+[5.]{.sommaire-numero} [Comparaisons à 1 ddl]{.sommaire-texte}
+
+[6.]{.sommaire-numero} [Les Conditions d’Applications, en résumé]{.sommaire-texte}
+:::
+:::
+
+
+## Les modèles statistiques {.smaller}
+
+En statistiques inférentielles, toute observation se décompose en une partie **modélisée** et une **erreur non modélisée** que l'on appelle résidu : 
+
+$$
+\text{Observation}=\text{Modèle}+\text{Erreur}
+\qquad\Longleftrightarrow\qquad
+\text{Erreur}=\text{Observation}-\text{Modèle}
+$$
+→ La **composante systématique** décrit la structure que le modèle cherche à expliquer : c'est la partie prévisible des données, elle est expliquée par les VI du modèle.
+
+→ La **composante aléatoire** rassemble les diverses sources de variabilité autour de cette composante systématique. C'est par exemple la variabilité résiduelle (i.e., l'erreur) ou, lorsque les mesures sont répétées, la variabilité intra-sujets.
+
+## Le modèle linéaire du *t*-test indépendant {.smaller}
+<div style="font-size:0.85em;">
+Le *t*-test à 2 échantillons indépendants est un modèle linéaire :
+
+$$
+Y_i =
+\underbrace{\beta_0 + \beta_1 \times X}_{\substack{
+\text{composante systématique :}\\[-1pt]
+\text{moyenne de l'échantillon}\\[-1pt]
+\text{+ effet de la VI}
+}} 
++ \underbrace{e_i}_{\substack{
+\text{composante aléatoire :}\\[-1pt] 
+\text{variabilité résiduelle}
+}}
+, \qquad \underbrace{e_i\sim\mathcal N(0,\sigma^2)}_{\substack{
+\text{nulle en moyenne et de variance constante}\\[-1pt]
+\text{(i.e., indépendante de la VI)}
+}}
+$$
+
+$\beta_0$ est l’*intercept*, graphiquement c'est l'ordonnée à l'origine de la droite représentant l'effet statistique brut. Ici, il représente la moyenne ajustée de l’échantillon. Il a la même unité que la VD.
+
+$\beta_1$ représente l'effet brut : c'est ce que l'on doit ajouter à $\beta_0$ pour obtenir la moyenne de la modalité d'intérêt, il s'exprime donc par rapport à $\beta_0$. Graphiquement c'est la pente du modèle, autrement dit : $\beta_1 = \frac{\Delta VD}{\Delta VI}$. Il a donc pour unité celle de la VD par celle de la VI.
+
+Enfin, le résidu $e_i = Y_i - \widehat Y_i$ est l’écart entre l’observation $i$ et la droite du modèle.
+
+*Nota* : C'est de l'hypothèse $e_i\sim\mathcal N(0,\sigma^2)$ que découlent les conditions d'application. De plus, si l'on s'intérèsse uniquement aux valeurs ajustées par le modèle sur l'échantillon et non aux inférences sur la population alors la composante systématique se notera : $\widehat Y_i = b_0 + b_1 \times X$. 
+</div>
+
+## Codage des VI catégorielles {.smaller}
+
+Dans un *t*-test indépendant, la VI peut être codée de plusieurs façons.Le *dummy coding* et le *sum-to-zero coding*.
+
+→ Avec le *dummy coding*, on code en 0 une modalité de référence (groupe contrôle ou *baseline*) tandis que l'autre modalité est codée 1. Le codage par défaut de JASP et jamovi code en 0 les modalités dans l'ordre alphanumérique, puis 1 l'autre condition. L’ordonnée à l’origine, $b_0$, correspond alors à la moyenne de cellule de la modalité de référence, tandis que $b_1$ représente la différence de moyennes inter-modalités.
+
+→ Avec le *sum-to-zero coding*, les deux modalités sont codées de telle manière à ce que la somme de leur code soit nulle. Si l'on a que deux conditions, on choisit typiquement les valeurs de −0,5 et +0,5 pour conserver un écart inter-modalités d'une seule unité. L’origine du graphe se situe alors à mi-chemin entre eux et donc $b_0$ représente la tendance centrale de l'échantillon entier (ici la moyenne générale ou *grand mean*). Puisque **l'écart inter-modalité reste d'une seule unité**, la pente $b_1$ du modèle conserve ici la même valeur et la même interprétation.
+
+Le codage est donc susceptible de modifier les valeurs de $b_0$ et de $b_1$ selon les situations, mais il ne modifie pas les valeurs de VD prédites par le modèle.
+
+## Représentation graphique du *t*-test {.smaller}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+```{r}
+#| label: fig-t-test-independant-lm
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Signification des paramètres libres du *t*-test indépendant.
+#|   <span class="note-figure"><em>Note.</em> Les points représentent les observations individuelles, les violons leur distribution et les segments pointillés les moyennes de chaque modalité. La ligne noire représente le modèle ajusté et la bande grise son intervalle $\pm 1{,}96\,SE$. Ici, le recodage modifie l’ordonnée à l’origine, $b_0$, mais conserve la pente puisque $\Delta X$ reste de 1, cela ne modifie pas non plus les $\widehat Y_i$ ni les résultats du *t*-test. Notez que je représente des données qui suivent une loi normale ici mais que ça ne devrait sans doute pas être le cas ici.</span>
+#| fig-width: 8.85
+#| fig-height: 3.65
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+n_g <- 20L; s_resid <- .80; mu_controle <- 12; mu_alzheimer <- 8
+b1 <- mu_alzheimer - mu_controle
+couleur_controle <- couleurs$bleu; couleur_alzheimer <- "#E67E22"
+
+set.seed(20260903)
+z <- as.numeric(scale(qnorm(ppoints(n_g))))
+obs_ctrl <- mu_controle + z * s_resid; obs_alz <- mu_alzheimer + sample(z) * s_resid
+jitter_ctrl <- runif(n_g, -.055, .055); jitter_alz <- runif(n_g, -.055, .055)
+
+format_num <- function(x, n = 1) sprintf(paste0("%.", n, "f"), x)
+format_p <- function(p) if (p < .001) "&lt; .001" else paste0("= ", sub("^0", "", sprintf("%.3f", p)))
+
+test_t <- t.test(obs_alz, obs_ctrl, var.equal = TRUE)
+sd_pool <- sqrt(((n_g - 1) * var(obs_alz) + (n_g - 1) * var(obs_ctrl)) / (2 * n_g - 2))
+d_cohen <- (mean(obs_alz) - mean(obs_ctrl)) / sd_pool
+
+rapport_test <- paste0(
+  "<i>b</i><sub>1</sub> = ", format_num(mean(obs_alz) - mean(obs_ctrl), 2),
+  ", <i>t</i>(", round(unname(test_t$parameter)), ") = ", format_num(unname(test_t$statistic), 2),
+  ", <i>p</i> ", format_p(test_t$p.value), ", <i>d</i> = ", format_num(d_cohen, 2),
+  ", IC 95 % [", format_num(test_t$conf.int[1], 2), " ; ", format_num(test_t$conf.int[2], 2), "]"
+)
+
+creer_etat <- function(codage) {
+  xc <- if (codage == "dummy") 0 else -.5; xa <- if (codage == "dummy") 1 else .5
+  b0 <- if (codage == "dummy") mu_controle else (mu_controle + mu_alzheimer) / 2
+  x <- seq(xc, xa, length.out = 101); xb <- mean(c(xc, xa))
+  Sxx <- n_g * (xc - xb)^2 + n_g * (xa - xb)^2
+  fit <- b0 + b1 * x
+  se <- s_resid * sqrt(1 / (2 * n_g) + (x - xb)^2 / Sxx)
+  list(xc = xc, xa = xa, b0 = b0, x = x, fit = fit, se = se, lower = fit - 1.96 * se, upper = fit + 1.96 * se)
+}
+
+dummy <- creer_etat("dummy"); sumzero <- creer_etat("sumzero")
+
+ajouter_etat <- function(p, e, visible) {
+  p |>
+    add_trace(x = c(e$x, rev(e$x)), y = c(e$upper, rev(e$lower)), type = "scatter", mode = "lines", visible = visible, showlegend = FALSE, line = list(width = 0), fill = "toself", fillcolor = "rgba(63,77,83,.12)", hoverinfo = "skip") |>
+    add_trace(x = rep(e$xc, n_g), y = obs_ctrl, type = "violin", visible = visible, name = "Contrôle", legendgroup = "controle", width = .27, points = FALSE, scalemode = "width", spanmode = "soft", bandwidth = .30, line = list(color = couleur_controle, width = 1.4), fillcolor = plotly::toRGB(couleur_controle, alpha = .16), hoverinfo = "skip") |>
+    add_trace(x = rep(e$xa, n_g), y = obs_alz, type = "violin", visible = visible, name = "Alzheimer", legendgroup = "alzheimer", width = .27, points = FALSE, scalemode = "width", spanmode = "soft", bandwidth = .30, line = list(color = couleur_alzheimer, width = 1.4), fillcolor = plotly::toRGB(couleur_alzheimer, alpha = .18), hoverinfo = "skip") |>
+    add_trace(x = e$xc + jitter_ctrl, y = obs_ctrl, type = "scatter", mode = "markers", visible = visible, showlegend = FALSE, marker = list(color = couleur_controle, size = 6, opacity = .72, line = list(color = "white", width = .7)), hovertemplate = "Contrôle<br>Score = %{y:.2f}<extra></extra>") |>
+    add_trace(x = e$xa + jitter_alz, y = obs_alz, type = "scatter", mode = "markers", visible = visible, showlegend = FALSE, marker = list(color = couleur_alzheimer, size = 6, opacity = .72, line = list(color = "white", width = .7)), hovertemplate = "Alzheimer<br>Score = %{y:.2f}<extra></extra>") |>
+    add_trace(x = c(e$xc - .18, e$xc + .18), y = rep(mu_controle, 2), type = "scatter", mode = "lines", visible = visible, showlegend = FALSE, line = list(color = couleur_controle, width = 2.5, dash = "dash"), hoverinfo = "skip") |>
+    add_trace(x = c(e$xa - .18, e$xa + .18), y = rep(mu_alzheimer, 2), type = "scatter", mode = "lines", visible = visible, showlegend = FALSE, line = list(color = couleur_alzheimer, width = 2.5, dash = "dash"), hoverinfo = "skip") |>
+    add_trace(x = e$x, y = e$fit, customdata = e$se, type = "scatter", mode = "lines", visible = visible, showlegend = FALSE, line = list(color = couleurs$fond, width = 3.2), hovertemplate = "X = %{x:.2f}<br>ŷ = %{y:.2f}<br>SE = %{customdata:.2f}<extra></extra>") |>
+    add_trace(x = c(e$xc, e$xa), y = c(mu_controle, mu_controle), type = "scatter", mode = "lines", visible = visible, showlegend = FALSE, line = list(color = couleurs$fond, width = 2, dash = "dot"), hoverinfo = "skip") |>
+    add_trace(x = c(e$xa, e$xa), y = c(mu_controle, mu_alzheimer), type = "scatter", mode = "lines", visible = visible, showlegend = FALSE, line = list(color = couleurs$fond, width = 2, dash = "dot"), hoverinfo = "skip") |>
+    add_trace(x = (e$xc + e$xa) / 2, y = mu_controle + .45, type = "scatter", mode = "text", visible = visible, showlegend = FALSE, text = "ΔX = +1", textfont = list(size = 11, color = couleurs$fond), hoverinfo = "skip")
+}
+
+creer_annotations <- function(e) {
+  list(
+    list(x = 0, y = e$b0, text = paste0("<i>b</i><sub>0</sub> = ", format_num(e$b0)), showarrow = TRUE, arrowhead = 0, arrowwidth = 1, arrowcolor = couleurs$fond, ax = 0, ay = -38, bgcolor = "rgba(255,255,255,1)", bordercolor = couleurs$fond, borderwidth = 1, borderpad = 4, font = list(size = 11, color = couleurs$fond)),
+    list(x = e$xa, y = (mu_controle + mu_alzheimer) / 2, text = paste0("<i>b</i><sub>1</sub> = ", format_num(b1)), showarrow = TRUE, arrowhead = 0, arrowwidth = 1, arrowcolor = couleurs$fond, ax = 50, ay = 0, bgcolor = "rgba(255,255,255,1)", bordercolor = couleurs$fond, borderwidth = 1, borderpad = 4, font = list(size = 11, color = couleurs$fond)),
+    list(x = .27, y = 1.035, xref = "paper", yref = "paper", text = rapport_test, showarrow = FALSE, xanchor = "left", yanchor = "bottom", align = "left", bgcolor = "rgba(255,255,255,.94)", bordercolor = "rgba(63,77,83,.65)", borderwidth = 1, borderpad = 4, font = list(size = 9.2, color = couleurs$fond))
+  )
+}
+
+origine <- list(type = "line", x0 = 0, x1 = 0, y0 = 0, y1 = 1, yref = "paper", line = list(color = "rgba(50,50,50,.55)", width = 1.4, dash = "dash"), layer = "below")
+
+axe_dummy <- list(title = list(text = "Code de la modalité (X)", standoff = 5), tickmode = "array", tickvals = c(0, 1), ticktext = c("Contrôle<br>X = 0<br>Origine", "Alzheimer<br>X = 1"), range = c(-.40, 1.48), fixedrange = TRUE, zeroline = FALSE)
+axe_sumzero <- list(title = list(text = "Code de la modalité (X)", standoff = 5), tickmode = "array", tickvals = c(-.5, 0, .5), ticktext = c("Contrôle<br>X = −0,5", "Origine<br>X = 0", "Alzheimer<br>X = +0,5"), range = c(-.90, .98), fixedrange = TRUE, zeroline = FALSE)
+
+p <- plot_ly()
+p <- ajouter_etat(p, dummy, TRUE)
+p <- ajouter_etat(p, sumzero, FALSE)
+
+n_traces <- 11L
+vis_dummy <- c(rep(TRUE, n_traces), rep(FALSE, n_traces))
+vis_sumzero <- !vis_dummy
+
+boutons <- list(
+  list(method = "update", label = "<i>Dummy</i> : 0 / 1", args = list(list(visible = vis_dummy), list(xaxis = axe_dummy, annotations = creer_annotations(dummy), shapes = list(origine)))),
+  list(method = "update", label = "<i>Sum-to-zero</i> : −0,5 / +0,5", args = list(list(visible = vis_sumzero), list(xaxis = axe_sumzero, annotations = creer_annotations(sumzero), shapes = list(origine))))
+)
+
+p <- p |>
+  layout(
+    width = 850, height = 345, autosize = FALSE, dragmode = FALSE, hovermode = "closest",
+    title = list(text = "Paramètres libres du t-test indépendant", x = .5, xanchor = "center", y = .99, yanchor = "top", font = list(size = 17.5, color = "#222222")),
+    xaxis = axe_dummy,
+    yaxis = list(title = list(text = "Score de Rappel Indicé au RL/RI-16", standoff = 5), range = c(0, 16), tickmode = "linear", dtick = 2, fixedrange = TRUE, zeroline = FALSE),
+    annotations = creer_annotations(dummy), shapes = list(origine),
+    legend = list(orientation = "h", x = .02, xanchor = "left", y = 1.035, yanchor = "bottom", font = list(size = 9.7)),
+    updatemenus = list(list(type = "buttons", direction = "right", active = 0, showactive = TRUE, x = .99, xanchor = "right", y = 1.18, yanchor = "top", font = list(size = 9.2, color = "#222222"), bgcolor = "rgba(255,255,255,1)", bordercolor = couleur_alzheimer, borderwidth = 1, pad = list(r = 0, t = 0), buttons = boutons)),
+    margin = list(l = 84, r = 55, t = 86, b = 82)
+  ) |>
+  config(displayModeBar = FALSE, responsive = FALSE)
+
+p$elementId <- "plotly-t-test-independant"
+p
+```
+:::
+
+## Formaliser *H0* et *H1* {.smaller}
+
+On compare le score de Rappel Indicé au RL/RI-16 entre deux groupes indépendants :
+
+| Groupe | Effectif | Moyenne | Écart-type |
+|:--:|:--:|:--:|:--:|
+| Contrôle | $n_C=20$ | $m_C=12$ | $s_C=0{,}80$ |
+| Alzheimer | $n_A=20$ | $m_A=8$ | $s_A=0{,}80$ |
+
+**$H_0$ :** les deux groupes ont la même moyenne dans la population. Autrement dit, sous $H_0$, la différence de moyennes attendue vaut $0$ :
+
+$$H_0:\mu_A=\mu_C, \qquad \Longleftrightarrow \qquad H_0:\mu_A-\mu_C=0$$
+**$H_1$ :** les moyennes de rappels indicés sont différentes selon la présence d'une pathologie ou non :
+
+$$H_1:\mu_A \neq \mu_C$$
+
+## Valeur du *t*-test indépendant
+
+$t(38)=-15{,}81$, $p<.001$ indique que la différence observée à $\mu_0$ est de 15,81 $se$. Les données soutiennent donc l’hypothèse d’un score plus faible dans le groupe Alzheimer.
+
+
+## Taille d’effet du *t*-test (à apprendre) {.smaller .titre-tres-long}
+
+<div style="font-size:0.95em;">
+
+La significativité statistique indique la compatibilité des données avec $H_0$. La **taille d’effet** décrit l’ampleur de l’écart observé. Pour un *t*-test à deux échantillons indépendants, le **$d$ de Cohen exprime la différence entre les moyennes en unités d’écart-type** :
+
+$$
+\begin{align}
+d 
+&=\frac{b_1}{s_{\text{combiné}}} =\frac{m_A-m_C}{s_{\text{combiné}}} =\frac{8-12}{0{,}80} =-5{,}00\\
+\end{align}
+$$
+
+où $s_{\text{combiné}}$ est l’écart-type combiné, il résume la dispersion des observations autour de la moyenne de leur propre groupe. Exprimer la taille d'effet de manière standardisée retire l'unité de la variable initiale, ce qui permet de réaliser des comparaisons inter-protocoles (e.g., de prise en charge thérapeutique) quelque soit la VD (e.g.,  score clinique) étudiée. 
+
+Le signe négatif indique ici que le score moyen est plus faible dans le groupe Alzheimer. Son ampleur, $|d|=5$, indique un écart de **cinq écarts-types** entre les deux groupes.
+
+De plus, une taille d'effet est indépendante de la taille d'échantillon et de la statistique de test. Ainsi, là où $p \underset{n\to +\infty}{\longrightarrow} 0$ et $|t| \underset{n\to +\infty}{\longrightarrow} +\infty$ la taille d'effet ne fait qu'osciller autour de sa vraie valeur dans la population, au même titre que la moyenne.
+</div>
+
+## Standardiser la taille d’effet
+
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+```{r}
+#| label: fig-cohen-d
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   De la différence brute $b_1$ à la taille d’effet standardisée $d$.
+#|   <span class="note-figure"><em>Note.</em> Chaque déplacement du curseur tire un nouvel échantillon dans deux populations dont les moyennes valent 12 et 8 et dont l’écart-type vaut 0,80. Ainsi, $\hat d$ fluctue autour de $d=-5$, tandis que $SE(\hat b_1)$ diminue et que $|t|$ augmente en moyenne.</span>
+#| fig-width: 9.2
+#| fig-height: 3.45
+#| fig-align: center
+#| out-width: "96%"
+#| echo: false
+
+library(plotly)
+
+mu_controle <- 12; mu_alzheimer <- 8; sigma_population <- .80
+b1_population <- mu_alzheimer - mu_controle; d_population <- b1_population / sigma_population
+N_initial <- 40L; N_total <- seq(20L, 200L, by = 20L)
+couleur_controle <- couleurs$bleu; couleur_alzheimer <- "#E67E22"; couleur_fond <- couleurs$fond
+
+n_initial <- N_initial / 2L
+z <- as.numeric(scale(qnorm(ppoints(n_initial))))
+controle_initial <- mu_controle + sigma_population * z
+alzheimer_initial <- mu_alzheimer + sigma_population * rev(z)
+kde <- function(v, grille) { h <- 1.06 * sd(v) * length(v)^(-.2); vapply(grille, function(x) mean(dnorm((x - v) / h)) / h, numeric(1)) }
+
+grille_score <- seq(5.2, 14.8, length.out = 400)
+dens_controle <- kde(controle_initial, grille_score); dens_alzheimer <- kde(alzheimer_initial, grille_score)
+ymax_score <- max(dens_controle, dens_alzheimer)
+s_echantillon_initial <- sqrt(((n_initial - 1) * var(controle_initial) + (n_initial - 1) * var(alzheimer_initial)) / (2 * n_initial - 2))
+b1_initial <- mean(alzheimer_initial) - mean(controle_initial); se_initial <- s_echantillon_initial * sqrt(2 / n_initial)
+grille_b1 <- seq(-5.4, 1.4, length.out = 500)
+dens_h0 <- dnorm(grille_b1, 0, se_initial); dens_h1 <- dnorm(grille_b1, b1_population, se_initial); ymax_b1 <- max(dens_h0, dens_h1)
+
+vis_echantillon <- c(rep(TRUE, 6), rep(FALSE, 3)); vis_echantillonnage <- !vis_echantillon
+boutons <- list(
+  list(label = "Échantillon observé", method = "update", args = list(list(visible = vis_echantillon), list())),
+  list(label = "Distribution d’échantillonnage", method = "update", args = list(list(visible = vis_echantillonnage), list()))
+)
+etapes <- lapply(N_total, function(N) list(label = as.character(N), method = "relayout", args = list(list(meta = list(N = N)))))
+
+p <- plot_ly() |>
+  add_trace(x = grille_score, y = dens_controle, type = "scatter", mode = "lines", name = "Contrôle", legendgroup = "controle", line = list(color = couleur_controle, width = 2), fill = "tozeroy", fillcolor = plotly::toRGB(couleur_controle, alpha = .16), hovertemplate = "Contrôle<br>Score = %{x:.2f}<br>Densité = %{y:.3f}<extra></extra>") |>
+  add_trace(x = grille_score, y = dens_alzheimer, type = "scatter", mode = "lines", name = "Alzheimer", legendgroup = "alzheimer", line = list(color = couleur_alzheimer, width = 2), fill = "tozeroy", fillcolor = plotly::toRGB(couleur_alzheimer, alpha = .16), hovertemplate = "Alzheimer<br>Score = %{x:.2f}<br>Densité = %{y:.3f}<extra></extra>") |>
+  add_trace(x = controle_initial, y = rep(-.025, n_initial), type = "scatter", mode = "markers", showlegend = FALSE, marker = list(color = couleur_controle, size = 5.5, opacity = .72, line = list(color = "white", width = .5)), hovertemplate = "Contrôle<br>Score = %{x:.2f}<extra></extra>") |>
+  add_trace(x = alzheimer_initial, y = rep(-.050, n_initial), type = "scatter", mode = "markers", showlegend = FALSE, marker = list(color = couleur_alzheimer, size = 5.5, opacity = .72, line = list(color = "white", width = .5)), hovertemplate = "Alzheimer<br>Score = %{x:.2f}<extra></extra>") |>
+  add_trace(x = rep(mean(controle_initial), 2), y = c(0, ymax_score), type = "scatter", mode = "lines", showlegend = FALSE, line = list(color = couleur_controle, width = 1.5, dash = "dash"), hoverinfo = "skip") |>
+  add_trace(x = rep(mean(alzheimer_initial), 2), y = c(0, ymax_score), type = "scatter", mode = "lines", showlegend = FALSE, line = list(color = couleur_alzheimer, width = 1.5, dash = "dash"), hoverinfo = "skip") |>
+  add_trace(x = grille_b1, y = dens_h0, type = "scatter", mode = "lines", visible = FALSE, name = "Sous H₀", line = list(color = couleur_fond, width = 1.8, dash = "dash"), fill = "tozeroy", fillcolor = "rgba(63,77,83,.08)", hovertemplate = "Sous H₀<br>b̂₁ = %{x:.2f}<br>Densité = %{y:.3f}<extra></extra>") |>
+  add_trace(x = grille_b1, y = dens_h1, type = "scatter", mode = "lines", visible = FALSE, name = "Si b₁ = −4", line = list(color = couleur_alzheimer, width = 2), fill = "tozeroy", fillcolor = plotly::toRGB(couleur_alzheimer, alpha = .14), hovertemplate = "Si b₁ = −4<br>b̂₁ = %{x:.2f}<br>Densité = %{y:.3f}<extra></extra>") |>
+  add_trace(x = rep(b1_initial, 2), y = c(0, ymax_b1), type = "scatter", mode = "lines", visible = FALSE, showlegend = FALSE, line = list(color = couleur_fond, width = 2.5), hoverinfo = "skip") |>
+  layout(
+    height = 335, autosize = TRUE, dragmode = FALSE, hovermode = "closest",
+    title = list(text = "<b>Taille d’effet et statistique de test</b>", x = .5, xanchor = "center", y = .995, yanchor = "top", font = list(size = 16, color = couleur_fond)),
+    xaxis = list(title = list(text = "Score au RL/RI-16", standoff = 5), range = c(5.2, 14.8), fixedrange = TRUE, zeroline = FALSE),
+    yaxis = list(title = list(text = "Densité de l’échantillon", standoff = 4), range = c(-.065, 1.26 * ymax_score), fixedrange = TRUE, zeroline = FALSE),
+    legend = list(orientation = "h", x = .01, xanchor = "left", y = 1.045, yanchor = "bottom", font = list(size = 9.5)),
+    updatemenus = list(list(type = "buttons", direction = "right", active = 0, x = .99, xanchor = "right", y = 1.045, yanchor = "bottom", bgcolor = "white", bordercolor = couleur_alzheimer, borderwidth = 1, font = list(size = 9.5), buttons = boutons)),
+    sliders = list(list(active = which(N_total == N_initial) - 1L, x = .11, len = .78, y = -.18, currentvalue = list(prefix = "<b>Effectif total N = </b>", font = list(size = 11)), transition = list(duration = 0), pad = list(t = 32), steps = etapes)),
+    margin = list(l = 60, r = 18, t = 72, b = 80)
+  ) |>
+  config(displayModeBar = FALSE, responsive = TRUE)
+
+p <- htmlwidgets::onRender(p, "
+function(el, x, pars) {
+  let vue = 'echantillon', etat = null;
+  const moyenne = v => v.reduce((a, b) => a + b, 0) / v.length;
+  const variance = v => { const m = moyenne(v); return v.reduce((s, z) => s + (z - m) ** 2, 0) / (v.length - 1); };
+  const ecartType = v => Math.sqrt(variance(v));
+  const suite = (a, b, n) => Array.from({length: n}, (_, i) => a + i * (b - a) / (n - 1));
+  function normale() { let u = 0, v = 0; while (u === 0) u = Math.random(); while (v === 0) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+  const densiteNormale = (x, mu, s) => Math.exp(-0.5 * ((x - mu) / s) ** 2) / (s * Math.sqrt(2 * Math.PI));
+  function kde(valeurs, grille) { const h = Math.max(0.05, 1.06 * ecartType(valeurs) * valeurs.length ** (-0.2)); return grille.map(x => valeurs.reduce((s, z) => s + densiteNormale(x, z, h), 0) / valeurs.length); }
+  const fmt = (v, k = 2) => v.toFixed(k).replace('.', ',').replace('-', '−');
+
+  function encart(e, lignes, position = .02, ancrage = 'left') {
+    return {x: position, y: .95, xref: 'paper', yref: 'paper', xanchor: ancrage, yanchor: 'top', text: '<b>N = ' + e.N + '</b> (' + e.n + ' par groupe)<br>' + lignes, showarrow: false, align: 'left', bgcolor: 'rgba(255,255,255,.95)', bordercolor: 'rgba(63,77,83,.65)', borderwidth: 1, borderpad: 5, font: {size: 10, color: pars.dark}};
+  }
+
+  function annotationsEchantillon() {
+    const e = etat, y = 1.045 * e.yScore;
+    return [
+      {x: e.mC, y: y, ax: e.mA, ay: y, xref: 'x', yref: 'y', axref: 'x', ayref: 'y', text: '', showarrow: true, arrowside: 'end+start', arrowhead: 3, startarrowhead: 3, arrowwidth: 1.7, arrowcolor: pars.dark},
+      {x: (e.mA + e.mC) / 2, y: 1.09 * e.yScore, xref: 'x', yref: 'y', text: '<i>b</i><sub>1</sub> = ' + fmt(e.b1) + ' points<br><i>d</i> = <i>b</i><sub>1</sub> / <i>s</i><sub>échantillon</sub> = ' + fmt(e.d), showarrow: false, align: 'center', bgcolor: 'rgba(255,255,255,.92)', bordercolor: pars.dark, borderwidth: 1, borderpad: 4, font: {size: 10.5, color: pars.dark}},
+      encart(e, '<i>s</i><sub>échantillon</sub> = ' + fmt(e.sEchantillon) + '<br><i>d</i><sub>population</sub> = −5,00')
+    ];
+  }
+
+  function annotationsEchantillonnage() {
+    const e = etat, yD = .14 * e.yB1;
+    return [
+      {x: 0, y: 1.065 * e.yB1, xref: 'x', yref: 'y', text: 'Sous H<sub>0</sub> : <i>b</i><sub>1</sub> = 0', showarrow: false, font: {size: 10, color: pars.dark}},
+      {x: pars.b1pop, y: 1.065 * e.yB1, xref: 'x', yref: 'y', text: 'Population : <i>b</i><sub>1</sub> = −4', showarrow: false, font: {size: 10, color: pars.orange}},
+      {x: e.b1, y: .67 * e.yB1, ax: e.b1 + .65, ay: .82 * e.yB1, xref: 'x', yref: 'y', axref: 'x', ayref: 'y', text: 'b̂<sub>1</sub> observé = ' + fmt(e.b1), showarrow: true, arrowhead: 2, arrowcolor: pars.dark, bgcolor: 'rgba(255,255,255,.92)', bordercolor: pars.dark, borderwidth: 1, borderpad: 3, font: {size: 10, color: pars.dark}},
+      {x: e.b1, y: yD, ax: 0, ay: yD, xref: 'x', yref: 'y', axref: 'x', ayref: 'y', text: '', showarrow: true, arrowside: 'end+start', arrowhead: 3, startarrowhead: 3, arrowwidth: 1.8, arrowcolor: pars.dark},
+      {x: e.b1 / 2, y: .24 * e.yB1, xref: 'x', yref: 'y', text: '<b><i>d</i> = ' + fmt(e.d) + '</b><br><i>b</i><sub>1</sub> / <i>s</i><sub>échantillon</sub>', showarrow: false, align: 'center', bgcolor: 'rgba(255,255,255,.93)', bordercolor: pars.dark, borderwidth: 1, borderpad: 3, font: {size: 10, color: pars.dark}},
+      encart(e, 'SE(b̂<sub>1</sub>) = ' + fmt(e.se, 3) + '<br><i>t</i>(' + (e.N - 2) + ') = ' + fmt(e.t) + '<br><i>d</i> = ' + fmt(e.d) + ' <span style=\"color:#777\">(population : −5,00)</span>', .50, 'center')
+    ];
+  }
+
+  function ajusterVue() {
+    if (!etat) return;
+    const e = etat;
+    if (vue === 'echantillon') Plotly.relayout(el, {'xaxis.range': [5.2, 14.8], 'xaxis.title.text': 'Score au RL/RI-16', 'yaxis.range': [-.065, 1.26 * e.yScore], 'yaxis.title.text': 'Densité de l’échantillon', annotations: annotationsEchantillon()});
+    else Plotly.relayout(el, {'xaxis.range': [-5.4, 1.4], 'xaxis.title.text': 'Valeurs possibles de b̂₁', 'yaxis.range': [0, 1.20 * e.yB1], 'yaxis.title.text': 'Densité d’échantillonnage', annotations: annotationsEchantillonnage()});
+  }
+
+  function recalculer(N, initial = false) {
+    const n = N / 2;
+    const controle = initial ? pars.ctrl0 : Array.from({length: n}, () => pars.muC + pars.sigma * normale());
+    const alzheimer = initial ? pars.alz0 : Array.from({length: n}, () => pars.muA + pars.sigma * normale());
+    const mC = moyenne(controle), mA = moyenne(alzheimer), vC = variance(controle), vA = variance(alzheimer);
+    const sEchantillon = Math.sqrt(((n - 1) * vC + (n - 1) * vA) / (2 * n - 2));
+    const b1 = mA - mC, d = b1 / sEchantillon, se = sEchantillon * Math.sqrt(2 / n), t = b1 / se;
+    const grilleScore = suite(5.2, 14.8, 400), densC = kde(controle, grilleScore), densA = kde(alzheimer, grilleScore), yScore = Math.max(...densC, ...densA);
+    const grilleB1 = suite(-5.4, 1.4, 500), densH0 = grilleB1.map(x => densiteNormale(x, 0, se)), densH1 = grilleB1.map(x => densiteNormale(x, pars.b1pop, se)), yB1 = Math.max(...densH0, ...densH1);
+    etat = {N, n, mC, mA, sEchantillon, b1, d, se, t, yScore, yB1};
+    Plotly.restyle(el, {x: [grilleScore, grilleScore, controle, alzheimer, [mC, mC], [mA, mA], grilleB1, grilleB1, [b1, b1]], y: [densC, densA, controle.map(() => -.025), alzheimer.map(() => -.050), [0, yScore], [0, yScore], densH0, densH1, [0, yB1]]}, [0, 1, 2, 3, 4, 5, 6, 7, 8]).then(ajusterVue);
+  }
+
+  el.on('plotly_buttonclicked', ev => { vue = ev.button.label === 'Échantillon observé' ? 'echantillon' : 'echantillonnage'; ajusterVue(); });
+  el.on('plotly_sliderchange', ev => recalculer(parseInt(ev.step.label, 10), false));
+  recalculer(pars.N0, true);
+}
+", data = list(muC = mu_controle, muA = mu_alzheimer, sigma = sigma_population, b1pop = b1_population, N0 = N_initial, ctrl0 = controle_initial, alz0 = alzheimer_initial, dark = couleur_fond, orange = couleur_alzheimer))
+
+p$elementId <- "plotly-cohen-d"
+p
+```
+:::
+
+## Seuils du *d* de Cohen pour les SHS (à connaître) {.smaller .titre-tres-long}
+
+Puisqu'une taille d'effet standardisée permet la comparaison inter-protocoles, Cohen a proposé des repères adaptés aux sciences sociales pour l'interprétation du $d$.
+
+| Valeur absolue du  $d$ | Interprétation |
+|:---:|:---:|
+| $< 0{,}20$ | Effet négligeable |
+| $0{,}20 > d < 0{,}50$ | Effet petit |
+| $0{,}50 > d < 0{,}80$ | Effet moyen |
+| $> 0{,}80$ | Effet fort |
+
+**NB :** Ce n'est pas parce-que les seuils proposés sont inférieurs à 1 que le $d$ de Cohen y est borné ! De telles valeurs sont très rares mais restent possibles.
+
+> **Annexe :** En GLM il faudra utiliser d'autres tailles d'effet ; par exemple les odds ratios en régression logistique (Bernoulli, Binomiale).
+
+## Comparaison de deux modèles emboîtés
+
+Sous $H_0$, la valeur pour $\beta_1$ est imposée/fixée à 0, on parle de modèle nul ou de modèle contraint :
+
+$$
+H_0:Y_i=\beta_0+e_i=30+e_i
+$$
+
+Dans le modèle nul, la pente de l'effet statistique (ici $\beta_1$) est un **paramètre fixé à 0** par l’hypothèse nulle.
+
+Sous $H_1$, l'effet statistique $\beta_1$ devient en revanche un paramètre libre ajustable auprès de l'échantillon, on parle de modèle augmenté :
+
+$$
+H_1:Y_i=\beta_0+\beta_1X+e_i,\qquad \beta_1=m_A-m_C
+$$
+
+La question devient : **le paramètre libre permet-il de réduire suffisamment l’erreur par rapport au modèle nul ?**
+
+## Les moindres carrés ordinaires (annexe)
+
+<div style="font-size:0.96em;">
+La technique des **moindres carrés ordinaires** (*ordinary least squares*, OLS) est une technique de maximum de vraisemblance qui permet de trouver de manière analytique (i.e., en *one-shot* pour les logiciels stats) les valeurs de $b_0$ et de $b_1$ qui minimisent l’erreur quadratique moyenne :
+
+$$
+\mathcal{L}_{\operatorname{MSE}(Y_{i}, \widehat{Y}_{i})}
+=\frac{1}{n}\sum_{i=1}^{n}\left[Y_i-
+\underbrace{(b_0+b_1X_i)}_{\substack{\text{composante systématique}}}\right]^2.
+$$
+
+On parle de « moindres carrés » car la méthode élève les résidus au carré avant de les additionner. De plus, on dit qu'à partir de deux paramètres, la $\mathcal{L}_{\operatorname{MSE}}$ décrit une surface d'erreur. 
+Les moindres carrés pondérés de Welch en sont une version pondérée de telle manière à ce que les observations associées à une variance moindre pèsent plus fortement dans l'ajustement du modèle.
+</div>
+
+
+## Ajouter un paramètre libre réduit l’erreur
+::: {.graphique-r .plotly-stable style="--plotly-height:315px;"}
+
+```{r}
+#| label: fig-t-test-independant-residus
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Ajouter un paramètre libre permet au modèle de rapprocher ses prédictions des observations.
+#|   <span class="note-figure"><em>Note.</em> Sous $H_0$, $b_0$ prédit les deux groupes. Sous $H_1$, l’ajout de $b_1$ autorise une différence entre eux. Les segments représentent les résidus et les bandes les IC 95 % de la moyenne prédite.</span>
+#| fig-width: 8.85
+#| fig-height: 3.25
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+library(plotly)
+
+n_g <- 20L; s_resid <- .80; mu_controle <- 12; mu_alzheimer <- 8
+couleur_controle <- couleurs$bleu; couleur_alzheimer <- "#E67E22"; couleur_h0 <- couleurs$rouge
+
+set.seed(20260903)
+z <- as.numeric(scale(qnorm(ppoints(n_g))))
+obs_ctrl <- mu_controle + z * s_resid; obs_alz <- mu_alzheimer + sample(z) * s_resid
+jitter_ctrl <- runif(n_g,-.065,.065); jitter_alz <- runif(n_g,-.065,.065)
+
+# Même jeu de valeurs, mais ordre d'affichage aléatoire dans chaque groupe
+set.seed(20260904)
+ordre_ctrl <- sample(seq_len(n_g)); ordre_alz <- sample(seq_len(n_g))
+y_ctrl <- obs_ctrl[ordre_ctrl]; y_alz <- obs_alz[ordre_alz]
+x_ctrl <- 1 + jitter_ctrl[ordre_ctrl]; x_alz <- 2 + jitter_alz[ordre_alz]
+
+m_ctrl <- mean(obs_ctrl); m_alz <- mean(obs_alz); m0 <- mean(c(obs_ctrl,obs_alz)); b1_hat <- m_alz-m_ctrl
+erreur0 <- sum((obs_ctrl-m0)^2)+sum((obs_alz-m0)^2)
+erreur1 <- sum((obs_ctrl-m_ctrl)^2)+sum((obs_alz-m_alz)^2)
+
+# Droites ajustées et IC 95 %
+N <- 2*n_g; x_mod <- seq(1,2,length.out=101); X_mod <- x_mod-1
+s0 <- sqrt(erreur0/(N-1)); se0 <- s0/sqrt(N); fit0 <- rep(m0,length(x_mod)); lower0 <- fit0-1.96*se0; upper0 <- fit0+1.96*se0
+Sxx <- n_g*(0-.5)^2+n_g*(1-.5)^2; s1 <- sqrt(erreur1/(N-2))
+fit1 <- m_ctrl+b1_hat*X_mod; se1 <- s1*sqrt(1/N+(X_mod-.5)^2/Sxx); lower1 <- fit1-1.96*se1; upper1 <- fit1+1.96*se1
+
+segments_residus <- function(x,y,pred) list(x=as.vector(rbind(x,x,NA_real_)),y=as.vector(rbind(y,pred,NA_real_)))
+seg0_ctrl <- segments_residus(x_ctrl,y_ctrl,rep(m0,n_g)); seg0_alz <- segments_residus(x_alz,y_alz,rep(m0,n_g))
+seg1_ctrl <- segments_residus(x_ctrl,y_ctrl,rep(m_ctrl,n_g)); seg1_alz <- segments_residus(x_alz,y_alz,rep(m_alz,n_g))
+
+# Erreur du modèle en fonction de b1, avec b0 réestimé pour chaque candidat
+y_all <- c(obs_ctrl,obs_alz); X_all <- c(rep(0,n_g),rep(1,n_g))
+profil <- data.frame(b1=seq(-7,3,length.out=300))
+profil$b0 <- vapply(profil$b1,function(b1) mean(y_all-b1*X_all),numeric(1))
+profil$erreur <- mapply(function(b0,b1) sum((y_all-(b0+b1*X_all))^2),profil$b0,profil$b1)
+
+# ── Panneau gauche ─────────────────────────────────────────────────────────────
+p_gauche <- plot_ly() |>
+  add_trace(x=c(x_mod,rev(x_mod)),y=c(upper0,rev(lower0)),type="scatter",mode="lines",line=list(width=0),fill="toself",fillcolor=plotly::toRGB(couleur_h0,alpha=.09),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=c(x_mod,rev(x_mod)),y=c(upper1,rev(lower1)),type="scatter",mode="lines",visible=FALSE,line=list(width=0),fill="toself",fillcolor="rgba(63,77,83,.12)",hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=rep(1,n_g),y=obs_ctrl,type="violin",name="Contrôle",legendgroup="controle",width=.30,points=FALSE,scalemode="width",spanmode="soft",bandwidth=.30,line=list(color=couleur_controle,width=1.4),fillcolor=plotly::toRGB(couleur_controle,alpha=.16),hoverinfo="skip") |>
+  add_trace(x=rep(2,n_g),y=obs_alz,type="violin",name="Alzheimer",legendgroup="alzheimer",width=.30,points=FALSE,scalemode="width",spanmode="soft",bandwidth=.30,line=list(color=couleur_alzheimer,width=1.4),fillcolor=plotly::toRGB(couleur_alzheimer,alpha=.18),hoverinfo="skip") |>
+  add_trace(x=c(seg0_ctrl$x,seg0_alz$x),y=c(seg0_ctrl$y,seg0_alz$y),type="scatter",mode="lines",line=list(color=couleur_h0,width=1.35),opacity=.58,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=seg1_ctrl$x,y=seg1_ctrl$y,type="scatter",mode="lines",visible=FALSE,line=list(color=couleur_controle,width=1.35),opacity=.60,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=seg1_alz$x,y=seg1_alz$y,type="scatter",mode="lines",visible=FALSE,line=list(color=couleur_alzheimer,width=1.35),opacity=.60,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=x_mod,y=fit0,type="scatter",mode="lines",line=list(color=couleur_h0,width=3),hovertemplate=paste0("<b>Modèle nul</b><br>ŷ = ",sprintf("%.2f",m0),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=x_mod,y=fit1,type="scatter",mode="lines",visible=FALSE,line=list(color=couleurs$fond,width=3.2),customdata=se1,hovertemplate="ŷ = %{y:.2f}<br>SE = %{customdata:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=x_ctrl,y=y_ctrl,type="scatter",mode="markers",marker=list(color=couleur_controle,size=6,opacity=.76,line=list(color="white",width=.7)),hovertemplate="Contrôle<br>Score = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=x_alz,y=y_alz,type="scatter",mode="markers",marker=list(color=couleur_alzheimer,size=6,opacity=.76,line=list(color="white",width=.7)),hovertemplate="Alzheimer<br>Score = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  layout(xaxis=list(title=list(text="Modalité",standoff=5),tickmode="array",tickvals=c(1,2),ticktext=c("Contrôle","Alzheimer"),range=c(.52,2.48),fixedrange=TRUE,zeroline=FALSE),
+         yaxis=list(title=list(text="Score de Rappel Indicé au RL/RI-16",standoff=5),range=c(5.7,14.3),dtick=2,fixedrange=TRUE,zeroline=FALSE))
+
+# ── Panneau droit ──────────────────────────────────────────────────────────────
+p_droite <- plot_ly(profil,x=~b1,y=~erreur) |>
+  add_trace(type="scatter",mode="lines",line=list(color=couleurs$fond,width=2.7),hovertemplate="<i>b</i><sub>1</sub> = %{x:.2f}<br>Erreur = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=0,y=erreur0,type="scatter",mode="markers",marker=list(color=couleur_h0,size=10,line=list(color="white",width=1)),hovertemplate="<b>H₀</b><br><i>b</i><sub>1</sub> = 0<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=b1_hat,y=erreur1,type="scatter",mode="markers",marker=list(color=couleur_alzheimer,size=10,line=list(color="white",width=1)),hovertemplate=paste0("<b>Minimum OLS</b><br><i>b</i><sub>1</sub> = ",sprintf("%.2f",b1_hat),"<extra></extra>"),showlegend=FALSE) |>
+  layout(xaxis=list(title=list(text="Valeur candidate de <i>b</i><sub>1</sub>",standoff=5),range=c(-7,3),fixedrange=TRUE,zeroline=FALSE),
+         yaxis=list(title=list(text="Erreur quadratique",standoff=5),fixedrange=TRUE,zeroline=FALSE))
+
+p <- subplot(p_gauche,p_droite,widths=c(.56,.44),margin=.075,titleX=TRUE,titleY=TRUE)
+
+# 1 H0-band, 2 H1-band, 3–4 violons, 5 H0-résidus, 6–7 H1-résidus,
+# 8 H0-droite, 9 H1-droite, 10–11 points, 12 courbe, 13 H0, 14 minimum
+vis_h0 <- c(TRUE,FALSE,TRUE,TRUE,TRUE,FALSE,FALSE,TRUE,FALSE,TRUE,TRUE,TRUE,TRUE,TRUE)
+vis_h1 <- c(FALSE,TRUE,TRUE,TRUE,FALSE,TRUE,TRUE,FALSE,TRUE,TRUE,TRUE,TRUE,TRUE,TRUE)
+vis_comparer <- rep(TRUE,14)
+
+creer_annotations <- function(etat) {
+  texte_gauche <- switch(etat,
+    h0="<b>H<sub>0</sub> : b<sub>1</sub> = 0</b><br><span style='font-size:10px'>Une seule moyenne prédit les deux groupes</span>",
+    h1="<b>H<sub>1</sub> : b<sub>1</sub> devient libre</b><br><span style='font-size:10px'>Le modèle distingue les deux groupes</span>",
+    comparer="<b>Ajouter b<sub>1</sub> raccourcit les résidus</b><br><span style='font-size:10px'>Le modèle se rapproche des observations</span>"
+  )
+  list(
+    list(x=.255,y=1.055,xref="paper",yref="paper",text=texte_gauche,showarrow=FALSE,xanchor="center",align="center",font=list(size=12.5,color="#222222")),
+    list(x=.79,y=1.055,xref="paper",yref="paper",text="<b>Les OLS choisissent la valeur qui minimise l’erreur</b>",showarrow=FALSE,xanchor="center",font=list(size=12.5,color="#222222")),
+    list(x=0,y=erreur0,xref="x2",yref="y2",text="<b>H<sub>0</sub></b><br>b<sub>1</sub> = 0",showarrow=TRUE,arrowhead=0,arrowwidth=1,ax=39,ay=-29,bgcolor="rgba(255,255,255,.95)",bordercolor=couleur_h0,borderwidth=1,borderpad=3,font=list(size=9.3,color="#222222")),
+    list(x=b1_hat,y=erreur1,xref="x2",yref="y2",text=paste0("<b>Minimum</b><br>b<sub>1</sub> = ",sprintf("%.1f",b1_hat)),showarrow=TRUE,arrowhead=0,arrowwidth=1,ax=-38,ay=-28,bgcolor="rgba(255,255,255,.95)",bordercolor=couleur_alzheimer,borderwidth=1,borderpad=3,font=list(size=9.3,color="#222222"))
+  )
+}
+
+ann_h0 <- creer_annotations("h0"); ann_h1 <- creer_annotations("h1"); ann_comparer <- creer_annotations("comparer")
+boutons <- list(
+  list(method="update",label="H<sub>0</sub> : b<sub>1</sub> = 0",args=list(list(visible=vis_h0),list(annotations=ann_h0))),
+  list(method="update",label="H<sub>1</sub> : b<sub>1</sub> libre",args=list(list(visible=vis_h1),list(annotations=ann_h1))),
+  list(method="update",label="Comparer",args=list(list(visible=vis_comparer),list(annotations=ann_comparer)))
+)
+
+p <- p |>
+  layout(width=850,height=310,autosize=FALSE,dragmode=FALSE,hovermode="closest",annotations=ann_h0,
+         legend=list(orientation="h",x=.015,xanchor="left",y=1.055,yanchor="bottom",font=list(size=9.5)),
+         updatemenus=list(list(type="buttons",direction="right",active=0,showactive=TRUE,x=.99,xanchor="right",y=1.285,yanchor="top",font=list(size=9.1,color="#222222"),bgcolor="rgba(255,255,255,1)",bordercolor=couleur_alzheimer,borderwidth=1,pad=list(r=0,t=0),buttons=boutons)),
+         margin=list(l=78,r=35,t=64,b=56)) |>
+  config(displayModeBar=FALSE,responsive=FALSE)
+
+p$elementId <- "plotly-t-test-independant-residus"
+p
+```
+:::
+
+## *t*-tests : décomposition de la variance
+
+La **décomposition de la variance** est à la base de l’analyse de la variance (ANOVA). L’ANOVA généralise le *t*-test ; on peut donc réexprimer le *t*-test dans ce cadre.
+
+La variance (*MSE*) décrit l’éloignement des observations autour d’une valeur ajustée. Dans le *t*-test indépendant, la composante systématique permet de représenter la différence inter-modalités.
+
+Une observation éloignée du modèle produit un grand résidu.
+
+## Décomposition des sommes des carrés {.smaller .titre-long}
+
+On code Contrôle $=0$ et Alzheimer $=1$. Le modèle nul prédit une moyenne commune, $H_0 : \widehat Y = b_0 = 10$. Le modèle augmenté prédit une moyenne par groupe, $\widehat Y=12-b_1X$.
+
+| Source | Écart considéré | Somme des carrés |
+|:--|:--|:--:|
+| **Systématique**, intergroupes | Prédiction du modèle augmenté à la moyenne générale | $SS_{\text{modèle}}=\sum_i(\widehat Y_i-10)^2=160$ |
+| **Aléatoire**, intragroupe | Observation à la prédiction de son groupe | $SS_{\text{erreur}}=\sum_i(Y_i-\widehat Y_i)^2=24{,}32$ |
+| **Totale**, sous $H_0$ | Observation à la moyenne générale | $SS_{H_0}=\sum_i(Y_i-10)^2=184{,}32$ |
+La dispersion totale se partage entre la **part expliquée par la VI** et la **part restant dans les résidus** :
+
+$$
+\underbrace{SS_{H_0}}_{184{,}32} = \underbrace{SS_{\text{modèle}}}_{160} + \underbrace{SS_{\text{erreur}}}_{24{,}32}
+\quad\ \leftrightarrow \quad
+\underbrace{SS_\text{Totale}}_{184{,}32} = \underbrace{SS_{\text{systématique}}}_{160} + \underbrace{SS_{\text{aléatoire}}}_{24{,}32}
+$$
+
+Ainsi, $SS_{\text{modèle}}=SS_{H_0}-SS_{\text{erreur}}$ mesure la **réduction de l’erreur** apportée par la prise en compte de l'effet du facteur.
+
+## Décomposition exacte (à apprendre) {.titre-long}
+
+La variance sous le modèle nul se partage entre la composante captée par l'effet de la pathologie et donc modélisée, et celle qui reste dans les résidus :
+
+$$
+SS_{H_0}=SS_{\text{modèle}}+SS_{\text{erreur}}
+$$
+**Autrement dit :**
+
+::: {style="border:4.5px solid #E69F55; border-radius:6px; padding:.08em .7em; background:rgba(255,255,255,1.);"}
+→ $SS_{H_0}$ : dispersion totale à expliquer sous le modèle nul.
+
+→ $SS_{\text{modèle}}$ : dispersion retirée par l’ajout de la composante systématique et de ses paramètres libres. On parle aussi de $SS_{between}$ ou de dispersion inter-modalité.
+
+→ $SS_{\text{erreur}}$ : dispersion restant dans la composante aléatoire et donc dans les résidus. On parle aussi de $SS_{within}$ ou de dispersion intra-modalité.
+:::
+
+## Décomposition de la variance par les sommes des carrés {.titre-tres-long}
+::: {.graphique-r .plotly-stable style="--plotly-height:335px;"}
+
+```{r}
+#| label: fig-t-test-independant-ss
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Les sommes des carrés quantifient différents écarts au modèle.
+#|   <span class="note-figure"><em>Note.</em> $SS_{H_0}$ décrit la dispersion relative au modèle nul. Elle se décompose en une part systématique modélisée, $SS_{\text{modèle}}$, et une part aléatoire restant dans les résidus, $SS_{\text{erreur}}$.</span>
+#| fig-width: 8.85
+#| fig-height: 3.35
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+library(plotly)
+
+n_g <- 20L; s_resid <- .80; mu_controle <- 12; mu_alzheimer <- 8
+couleur_controle <- couleurs$bleu; couleur_alzheimer <- "#E67E22"; couleur_h0 <- couleurs$rouge; couleur_modele <- "#E67E22"
+set.seed(20260903); z <- as.numeric(scale(qnorm(ppoints(n_g)))); obs_ctrl <- mu_controle+z*s_resid; obs_alz <- mu_alzheimer+sample(z)*s_resid
+jitter_ctrl <- runif(n_g,-.065,.065); jitter_alz <- runif(n_g,-.065,.065)
+set.seed(20260904); ordre_ctrl <- sample(seq_len(n_g)); ordre_alz <- sample(seq_len(n_g))
+y_ctrl <- obs_ctrl[ordre_ctrl]; y_alz <- obs_alz[ordre_alz]; x_ctrl <- 1+jitter_ctrl[ordre_ctrl]; x_alz <- 2+jitter_alz[ordre_alz]
+
+m_ctrl <- mean(obs_ctrl); m_alz <- mean(obs_alz); m0 <- mean(c(obs_ctrl,obs_alz)); b1_hat <- m_alz-m_ctrl
+SS_H0 <- sum((obs_ctrl-m0)^2)+sum((obs_alz-m0)^2); SS_erreur <- sum((obs_ctrl-m_ctrl)^2)+sum((obs_alz-m_alz)^2); SS_modele <- SS_H0-SS_erreur
+fmt <- function(x) formatC(x,format="f",digits=2,decimal.mark=",")
+
+N <- 2*n_g; x_mod <- seq(1,2,length.out=101); X_mod <- x_mod-1
+s0 <- sqrt(SS_H0/(N-1)); se0 <- s0/sqrt(N); fit0 <- rep(m0,length(x_mod)); lower0 <- fit0-1.96*se0; upper0 <- fit0+1.96*se0
+Sxx <- n_g*(0-.5)^2+n_g*(1-.5)^2; s1 <- sqrt(SS_erreur/(N-2)); fit1 <- m_ctrl+b1_hat*X_mod; se1 <- s1*sqrt(1/N+(X_mod-.5)^2/Sxx); lower1 <- fit1-1.96*se1; upper1 <- fit1+1.96*se1
+segments_residus <- function(x,y,pred) list(x=as.vector(rbind(x,x,NA_real_)),y=as.vector(rbind(y,pred,NA_real_)))
+seg0_ctrl <- segments_residus(x_ctrl,y_ctrl,rep(m0,n_g)); seg0_alz <- segments_residus(x_alz,y_alz,rep(m0,n_g))
+seg1_ctrl <- segments_residus(x_ctrl,y_ctrl,rep(m_ctrl,n_g)); seg1_alz <- segments_residus(x_alz,y_alz,rep(m_alz,n_g))
+i_ctrl <- which.max(y_ctrl); i_alz <- which.min(y_alz)
+
+# ── Panneau gauche ─────────────────────────────────────────────────────────────
+p_gauche <- plot_ly() |>
+  add_trace(x=c(x_mod,rev(x_mod)),y=c(upper0,rev(lower0)),type="scatter",mode="lines",line=list(width=0),fill="toself",fillcolor=plotly::toRGB(couleur_h0,alpha=.08),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=c(x_mod,rev(x_mod)),y=c(upper1,rev(lower1)),type="scatter",mode="lines",visible=FALSE,line=list(width=0),fill="toself",fillcolor="rgba(63,77,83,.12)",hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=rep(1,n_g),y=obs_ctrl,type="violin",name="Contrôle",legendgroup="controle",width=.30,points=FALSE,scalemode="width",spanmode="soft",bandwidth=.30,line=list(color=couleur_controle,width=1.4),fillcolor=plotly::toRGB(couleur_controle,alpha=.16),hoverinfo="skip") |>
+  add_trace(x=rep(2,n_g),y=obs_alz,type="violin",name="Alzheimer",legendgroup="alzheimer",width=.30,points=FALSE,scalemode="width",spanmode="soft",bandwidth=.30,line=list(color=couleur_alzheimer,width=1.4),fillcolor=plotly::toRGB(couleur_alzheimer,alpha=.18),hoverinfo="skip") |>
+  add_trace(x=c(seg0_ctrl$x,seg0_alz$x),y=c(seg0_ctrl$y,seg0_alz$y),type="scatter",mode="lines",line=list(color=couleur_h0,width=1.45),opacity=.60,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=seg1_ctrl$x,y=seg1_ctrl$y,type="scatter",mode="lines",visible=FALSE,line=list(color=couleur_controle,width=1.55),opacity=.68,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=seg1_alz$x,y=seg1_alz$y,type="scatter",mode="lines",visible=FALSE,line=list(color=couleur_alzheimer,width=1.55),opacity=.68,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=x_mod,y=fit0,type="scatter",mode="lines",line=list(color=couleur_h0,width=3),hovertemplate=paste0("<b>H₀</b><br>ŷ = ",sprintf("%.2f",m0),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=x_mod,y=fit1,type="scatter",mode="lines",visible=FALSE,line=list(color=couleurs$fond,width=3.2),customdata=se1,hovertemplate="ŷ = %{y:.2f}<br>SE = %{customdata:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=c(1,1,NA,2,2),y=c(m0,m_ctrl,NA,m0,m_alz),type="scatter",mode="lines",visible=FALSE,line=list(color=couleur_modele,width=4,dash="dot"),hovertemplate=paste0("<b>Part modélisée</b><br>|ŷ<sub>H₁</sub> − ŷ<sub>H₀</sub>| = ",abs(m_ctrl-m0),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=x_ctrl,y=y_ctrl,type="scatter",mode="markers",marker=list(color=couleur_controle,size=6,opacity=.78,line=list(color="white",width=.7)),hovertemplate="Contrôle<br>Score = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=x_alz,y=y_alz,type="scatter",mode="markers",marker=list(color=couleur_alzheimer,size=6,opacity=.78,line=list(color="white",width=.7)),hovertemplate="Alzheimer<br>Score = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  layout(xaxis=list(title=list(text="Modalité",standoff=5),tickmode="array",tickvals=c(1,2),ticktext=c("Contrôle","Alzheimer"),range=c(.48,2.82),fixedrange=TRUE,zeroline=FALSE),yaxis=list(title=list(text="Score de Rappel Indicé au RL/RI-16",standoff=5),range=c(5.7,14.3),dtick=2,fixedrange=TRUE,zeroline=FALSE))
+
+# ── Panneau droit ──────────────────────────────────────────────────────────────
+p_droite <- plot_ly() |>
+  add_trace(x=SS_H0,y="SS<sub>H₀</sub>",type="bar",orientation="h",marker=list(color=plotly::toRGB(couleur_h0,.72)),hovertemplate=paste0("<b>SS<sub>H₀</sub></b> = ",fmt(SS_H0),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=SS_modele,y="SS<sub>modèle</sub>",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleur_modele,.78)),hovertemplate=paste0("<b>SS<sub>modèle</sub></b> = ",fmt(SS_modele),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=SS_erreur,y="SS<sub>erreur</sub>",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleur_controle,.72)),hovertemplate=paste0("<b>SS<sub>erreur</sub></b> = ",fmt(SS_erreur),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=SS_modele,y="Décomposition",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleur_modele,.78)),hovertemplate=paste0("<b>Part modélisée</b><br>SS<sub>modèle</sub> = ",fmt(SS_modele),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=SS_erreur,y="Décomposition",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleur_controle,.72)),hovertemplate=paste0("<b>Part aléatoire</b><br>SS<sub>erreur</sub> = ",fmt(SS_erreur),"<extra></extra>"),showlegend=FALSE) |>
+  layout(xaxis=list(title=list(text="Somme des carrés",standoff=5),range=c(0,SS_H0*1.08),fixedrange=TRUE,zeroline=FALSE),yaxis=list(title="",fixedrange=TRUE,categoryorder="array",categoryarray=c("Décomposition","SS<sub>erreur</sub>","SS<sub>modèle</sub>","SS<sub>H₀</sub>")),barmode="stack")
+
+p <- subplot(p_gauche,p_droite,widths=c(.59,.41),margin=.085,titleX=TRUE,titleY=TRUE)
+
+# 1–12 panneau gauche ; 13 H0 ; 14 modèle ; 15 erreur ; 16–17 décomposition
+vis_h0 <- c(TRUE,FALSE,TRUE,TRUE,TRUE,FALSE,FALSE,TRUE,FALSE,FALSE,TRUE,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE)
+vis_erreur <- c(FALSE,TRUE,TRUE,TRUE,FALSE,TRUE,TRUE,FALSE,TRUE,FALSE,TRUE,TRUE,FALSE,FALSE,TRUE,FALSE,FALSE)
+vis_modele <- c(TRUE,TRUE,TRUE,TRUE,FALSE,FALSE,FALSE,TRUE,TRUE,TRUE,TRUE,TRUE,FALSE,TRUE,FALSE,FALSE,FALSE)
+vis_decomposition <- rep(TRUE,17)
+
+ann_commun <- function(titre,formule) list(list(x=.27,y=1.055,xref="paper",yref="paper",text=titre,showarrow=FALSE,xanchor="center",font=list(size=12.5,color="#222222")),list(x=.805,y=1.055,xref="paper",yref="paper",text=formule,showarrow=FALSE,xanchor="center",font=list(size=12.1,color="#222222")))
+
+ann_h0 <- c(ann_commun("<b>Résidus du modèle nul</b>",paste0("<b>SS<sub>H₀</sub> = Σ e<sub>i,H₀</sub><sup>2</sup> = ",fmt(SS_H0),"</b>")),list(
+  list(x=x_ctrl[i_ctrl],y=(y_ctrl[i_ctrl]+m0)/2,xref="x",yref="y",text="<i>e</i><sub>i,H₀</sub> = Y<sub>i</sub> − 10",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_h0,ax=-62,ay=-30,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_h0,borderwidth=1,borderpad=3,font=list(size=9.2)),
+  list(x=x_alz[i_alz],y=(y_alz[i_alz]+m0)/2,xref="x",yref="y",text="<i>e</i><sub>i,H₀</sub> = Y<sub>i</sub> − 10",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_h0,ax=61,ay=28,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_h0,borderwidth=1,borderpad=3,font=list(size=9.2))))
+
+ann_erreur <- c(ann_commun("<b>Résidus du modèle augmenté</b>",paste0("<b>SS<sub>erreur</sub> = Σ e<sub>i,H₁</sub><sup>2</sup> = ",fmt(SS_erreur),"</b>")),list(
+  list(x=x_ctrl[i_ctrl],y=(y_ctrl[i_ctrl]+m_ctrl)/2,xref="x",yref="y",text="<i>e</i><sub>i,H₁</sub> = Y<sub>i</sub> − 12",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_controle,ax=-66,ay=-31,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_controle,borderwidth=1,borderpad=3,font=list(size=9.2)),
+  list(x=x_alz[i_alz],y=(y_alz[i_alz]+m_alz)/2,xref="x",yref="y",text="<i>e</i><sub>i,H₁</sub> = Y<sub>i</sub> − 8",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_alzheimer,ax=64,ay=29,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_alzheimer,borderwidth=1,borderpad=3,font=list(size=9.2))))
+
+ann_modele <- c(ann_commun("<b>Écart entre les prédictions des deux modèles</b>",paste0("<b>SS<sub>modèle</sub> = Σ(ŷ<sub>H₁</sub> − ŷ<sub>H₀</sub>)<sup>2</sup> = ",fmt(SS_modele),"</b>")),list(
+  list(x=1,y=(m0+m_ctrl)/2,xref="x",yref="y",text="<b>Part modélisée</b><br>ŷ<sub>H₁</sub> − ŷ<sub>H₀</sub> = +2<br><span style='font-size:8px'>× 20 observations</span>",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_modele,ax=-76,ay=0,bgcolor="rgba(255,255,255,.95)",bordercolor=couleur_modele,borderwidth=1,borderpad=3,font=list(size=9.1)),
+  list(x=2,y=(m0+m_alz)/2,xref="x",yref="y",text="<b>Part modélisée</b><br>ŷ<sub>H₁</sub> − ŷ<sub>H₀</sub> = −2<br><span style='font-size:8px'>× 20 observations</span>",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_modele,ax=76,ay=0,bgcolor="rgba(255,255,255,.95)",bordercolor=couleur_modele,borderwidth=1,borderpad=3,font=list(size=9.1))))
+
+# Grande accolade rouge à droite : elle englobe visuellement l'ensemble des écarts à H0
+accolade <- list(list(type="path",xref="x",yref="y",path="M 2.45,13.65 C 2.60,13.65 2.60,13.20 2.60,12.85 C 2.60,11.45 2.56,10.35 2.43,10.00 C 2.56,9.65 2.60,8.55 2.60,7.15 C 2.60,6.80 2.60,6.35 2.45,6.35",line=list(color=couleur_h0,width=2.4),layer="above"))
+sans_accolade <- list()
+
+ann_decomposition <- c(ann_commun("<b>Chaque écart à H₀ se décompose</b>",paste0("<b>",fmt(SS_H0)," = ",fmt(SS_modele)," + ",fmt(SS_erreur),"</b>")),list(
+  list(x=2.72,y=10,xref="x",yref="y",text="<b>Variance totale relative au modèle nul</b>",textangle=-90,showarrow=FALSE,font=list(size=9.5,color=couleur_h0)),
+  list(x=1,y=(m0+m_ctrl)/2,xref="x",yref="y",text="<b>Part modélisée</b>",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_modele,ax=-70,ay=5,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_modele,borderwidth=1,borderpad=3,font=list(size=9)),
+  list(x=x_ctrl[i_ctrl],y=(y_ctrl[i_ctrl]+m_ctrl)/2,xref="x",yref="y",text="<b>Résidu restant<br>(Part aléatoire)</b>",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_controle,ax=-80,ay=-29,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_controle,borderwidth=1,borderpad=3,font=list(size=8.8))))
+
+boutons <- list(
+  list(method="update",label="SS<sub>H₀</sub>",args=list(list(visible=vis_h0),list(annotations=ann_h0,shapes=sans_accolade))),
+  list(method="update",label="SS<sub>erreur</sub>",args=list(list(visible=vis_erreur),list(annotations=ann_erreur,shapes=sans_accolade))),
+  list(method="update",label="SS<sub>modèle</sub>",args=list(list(visible=vis_modele),list(annotations=ann_modele,shapes=sans_accolade))),
+  list(method="update",label="Décomposition",args=list(list(visible=vis_decomposition),list(annotations=ann_decomposition,shapes=accolade))))
+
+p <- p |> layout(width=850,height=295,autosize=FALSE,dragmode=FALSE,hovermode="closest",barmode="stack",annotations=ann_h0,shapes=sans_accolade,
+  legend=list(orientation="h",x=.015,xanchor="left",y=1.055,yanchor="bottom",font=list(size=9.4)),
+  updatemenus=list(list(type="buttons",direction="right",active=0,showactive=TRUE,x=.99,xanchor="right",y=1.30,yanchor="top",font=list(size=9,color="#222222"),bgcolor="rgba(255,255,255,1)",bordercolor=couleur_alzheimer,borderwidth=1,pad=list(r=0,t=0),buttons=boutons)),
+  margin=list(l=78,r=28,t=62,b=53)) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+p$elementId <- "plotly-t-test-independant-ss"
+p
+```
+:::
+
+## Carrés moyens et équivalence entre *t* et *F* {.smaller .titre-tres-long}
+
+<div style="font-size:1.18em;">
+Un **carré moyen** (*mean square*, MS) est une somme des carrés divisée par ses degrés de liberté résiduels correspondants, ce sont donc des variances.
+
+| Source | ddl | Carré moyen |
+|:--|:--:|:--:|
+| Effet du groupe | systématique : $2-1=1$ | $MS_{\text{modèle}}=160/1=160$ |
+| Erreur | résiduels : $N-2=38$ | $MS_{\text{erreur}}=24{,}32/38=0{,}64$ |
+
+Le modèle nul estime $b_0$. Le modèle augmenté estime $b_0$ et $b_1$ : **un seul paramètre supplémentaire** sert à tester l’effet du groupe.
+
+$$F(1,38)=\frac{160}{0{,}64}=250=t(38)^2.$$
+
+Cette équivalence concerne le **test de Student bilatéral à variances égales** et l’ANOVA classique à deux groupes. Le signe de $t$ indique le sens de la différence, tandis que $F\geq0$.
+</div>
+
+## Pourquoi un test omnibus ? {.smaller}
+
+<div style="font-size:1.18em;">
+L’**ANOVA indépendante à un facteur** compare une VD quantitative entre $k$ modalités d’un facteur catégoriel. Chaque participant appartient à une seule modalité.
+
+Le test **omnibus** pose une question globale sur les moyennes. Tester toutes les paires séparément produit :
+
+$$C=\frac{k(k-1)}{2}\quad\text{comparaisons}.$$
+
+À titre d’illustration, pour $C$ tests indépendants dont toutes les hypothèses nulles sont vraies ; alors la probabilité de comettre au moins un faux positif sur l'ensemble des comparaisons par paires possibles est de :
+
+$$\Pr(\text{au moins un faux positif})=1-(1-\alpha)^C.$$
+
+Avec $k=4$ et $\alpha=.05$, on obtient $C=6$ et un risque de **26,5 %**. C'est énorme !
+</div>
+
+## Comparaisons multiples : FWER et FDR {.smaller .titre-tres-long}
+
+**A apprendre** : On peut contrôler deux choses, soit le **FWER** soit le **FDR**. **FWER** (*family-wise error rate*) : probabilité de commettre **au moins un faux positif** dans une famille de tests. **FDR** (*false discovery rate*) : **% de faux positifs parmi les résultats significatifs** (nulle si aucun résultat significatif).
+
+<div style="font-size:0.86em;">
+| Méthode | Contrôle | Principe | Quand l’utiliser ? |
+|:--|:--:|:--|:--|
+| **Bonferroni** | FWER | **Seuil par test : $\alpha/C$** | Pour quelques comparaisons ; méthode simple mais conservatrice. |
+| **Holm** | FWER | Seuils progressifs selon les $p$ ordonnées | Choix général pour des comparaisons ciblées ; au moins aussi puissant que Bonferroni. |
+| **Tukey** | FWER | Ajustement adapté aux différences de moyennes | Toutes les comparaisons par paires en ANOVA classique. |
+| **Benjamini–Hochberg** | FDR | Seuils adaptés au rang des $p$ | Nombreux tests exploratoires, avec une proportion de fausses découvertes tolérée. |
+
+Règle de pouce : Holm pour des hypothèses ciblées, Tukey pour toutes les paires, Benjamini–Hochberg pour l’exploration à grande échelle. Bonferroni et Holm acceptent des tests dépendants. Benjamini–Hochberg suppose l’indépendance.
+</div>
+
+## Exemple : cognition sociale et test des Faux Pas {.smaller .titre-tres-long}
+
+<div style="font-size:1.16em;">
+La **Démence Fronto-Temporale comportementale** altère la cognition sociale et l’attribution d’états mentaux à autrui (*théorie de l’esprit*, TOM). Elle apparaît vers 50-65 ans et induit de profond changements de la personnalité. Elle peut être de diagnostic différentiel compliqué avec les profils psychiatriques bipolaires ou schyzophrénique si on ne la connaît pas.
+
+Le test des **Faux Pas** évalue la compréhension de situations sociales. Dans notre exemple, le score maximal vaut **60 points** et un score élevé indique une meilleure performance.
+
+| Modalité $j$ | $n_j$ | Moyenne $m_j$ | Écart-type $s_j$ |
+|:--|:--:|:--:|:--:|
+| DFT comportementale | 10 | 29 | 9 |
+| Bipolaire | 10 | 36 | 8 |
+| Contrôle | 10 | 45 | 8,5 |
+
+**Question :** les scores moyens diffèrent-ils selon le groupe ? Pour cela on accomplit une **ANOVA à un facteur à 3 modalités**.
+</div>
+
+## Modèles nul et complet : hypothèses omnibus {.smaller .titre-tres-long}
+
+<div style="font-size:1.20em;">
+**En omnibus sous $H_0$, les moyennes de population sont égales :**
+
+$$H_0:\mu_{\text{DFT}}=\mu_{\text{Bipolaire}}=\mu_{\text{Contrôle}}.$$
+
+Le modèle nul ajuste une moyenne commune : $\widehat Y=m_{\text{échantillon}}$. Ses résidus valent $Y-m_{\text{échantillon}}$.
+
+**Sous $H_1$, au moins deux moyennes de population diffèrent.**
+
+Le modèle complet autorise une moyenne par modalité :
+
+$$Y=\beta_0+\beta_1X+\beta_2X+\varepsilon.$$
+
+Pour $k=3$ modalités, il estime **un intercept et $k-1=2$ coefficients/pentes**. 
+En omnibus, où l'on test tous les effets possibles conjointement, la comparaison évalue le gain apporté par ces deux paramètres à la fois par rapport à $H_0:\mu_{\text{DFT}}=\mu_{\text{Bipolaire}}=\mu_{\text{Contrôle}}.$
+</div>
+
+## Dispersion intergroupe, intragroupe et ratio *F* {.smaller .titre-tres-long}
+
+<div style="font-size:1.14em;">
+Dans ce plan équilibré, la **moyenne générale** (*grand mean*) est la moyenne des moyennes :
+
+$$m_{\text{échantillon}}=\frac{29+36+45}{3}=36{,}67.$$
+
+| Composante | Écarts considérés | Carré moyen |
+|:--|:--|:--:|
+| **Systématique**, intergroupe (*between*) | Moyennes de groupes à la moyenne générale | $MS_{\text{modèle}}$ |
+| **Aléatoire**, intragroupe (*within*) | Observations à leur moyenne de groupe | $MS_{\text{erreur}}$ |
+
+$$F=\frac{MS_{\text{modèle}}}{MS_{\text{erreur}}}.$$
+
+Sous $H_0$, les deux carrés moyens estiment la même variance. À effectifs et dispersion intragroupe fixés, **écarter les moyennes augmente $F$**.
+</div>
+
+## Dispersion inter et intragroupe {.smaller}
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+
+```{r}
+#| label: fig-between-within-interactif
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Influence de la séparation des moyennes et de la dispersion intragroupe sur l’ANOVA.
+#|   <span class="note-figure"><em>Note.</em> Les *half-violins* représentent la densité intramodale des observations empiriques. **$\omega^2$ : taille d'effet conseillée lors du test omnibus (car corrigée) en ANOVA indépendante. Sa correction par les ddl la laisse prendre des valeurs négatives ce qui signal un ou plusieurs paramètres libres d'effet négligeable.**</span>
+#| fig-width: 9
+#| fig-height: 3.55
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+library(plotly); library(htmlwidgets)
+
+n_g <- 10L; groupes <- c("DFT","Bipolaire","Contrôle"); moyennes0 <- c(29,36,45); sd_base <- c(9,8,8.5)
+cols <- c(DFT=green,Bipolaire=orange,Contrôle=blue); couleur_h0 <- red; couleur_modele <- orange; couleur_erreur <- blue
+set.seed(20260905); z_list <- lapply(1:3,function(i)sample(as.numeric(scale(rnorm(n_g)))))
+set.seed(20260906); xs <- lapply(1:3,function(j)j-runif(n_g,.05,.20))
+
+calc_stats <- function(m,s){mg <- mean(m); ssm <- n_g*sum((m-mg)^2); sse <- (n_g-1)*sum(s^2); sst <- ssm+sse; mse <- sse/27; F <- (ssm/2)/mse; list(mg=mg,ssm=ssm,sse=sse,F=F,p=pf(F,2,27,lower.tail=FALSE),omega=(ssm-2*mse)/(sst+mse))}
+half_violin <- function(j,m,s){yy <- seq(0,60,length.out=301); dx <- .28*exp(-.5*((yy-m)/s)^2); list(x=c(rep(j,length(yy)),rev(j+dx)),y=c(yy,rev(yy)))}
+fmt <- function(x,n=2)formatC(x,format="f",digits=n,decimal.mark=","); fmt_p <- function(p)if(p<.001)"&lt; .001" else paste0("= ",sub("^0","",sprintf("%.3f",p)))
+
+s0 <- sd_base; y0 <- Map(function(m,s,z)m+s*z,moyennes0,s0,z_list); hv0 <- Map(half_violin,1:3,moyennes0,s0); st <- calc_stats(moyennes0,s0)
+rapport <- paste0("<b>ANOVA :</b> <i>F</i>(2, 27) = ",fmt(st$F),", <i>p</i> ",fmt_p(st$p),", ω² = ",sub("^0","",sprintf("%.3f",st$omega)))
+
+p <- plot_ly() |>
+  add_trace(x=hv0[[1]]$x,y=hv0[[1]]$y,type="scatter",mode="lines",fill="toself",line=list(color=cols["DFT"],width=1.6),fillcolor=plotly::toRGB(cols["DFT"],.13),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=hv0[[2]]$x,y=hv0[[2]]$y,type="scatter",mode="lines",fill="toself",line=list(color=cols["Bipolaire"],width=1.6),fillcolor=plotly::toRGB(cols["Bipolaire"],.13),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=hv0[[3]]$x,y=hv0[[3]]$y,type="scatter",mode="lines",fill="toself",line=list(color=cols["Contrôle"],width=1.6),fillcolor=plotly::toRGB(cols["Contrôle"],.13),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=c(.55,3.38),y=c(st$mg,st$mg),type="scatter",mode="lines",line=list(color=couleur_h0,width=2.2,dash="dash"),hovertemplate=paste0("<b>Moyenne générale</b><br>m = ",fmt(st$mg),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=c(1,1,NA,2,2,NA,3,3),y=c(st$mg,moyennes0[1],NA,st$mg,moyennes0[2],NA,st$mg,moyennes0[3]),type="scatter",mode="lines",line=list(color=couleur_modele,width=3.3,dash="dot"),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=c(.78,1.28),y=rep(moyennes0[1],2),type="scatter",mode="lines",line=list(color=cols["DFT"],width=3),hovertemplate="<b>DFT</b><br>m = %{y:.1f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=c(1.78,2.28),y=rep(moyennes0[2],2),type="scatter",mode="lines",line=list(color=cols["Bipolaire"],width=3),hovertemplate="<b>Bipolaire</b><br>m = %{y:.1f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=c(2.78,3.28),y=rep(moyennes0[3],2),type="scatter",mode="lines",line=list(color=cols["Contrôle"],width=3),hovertemplate="<b>Contrôle</b><br>m = %{y:.1f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=xs[[1]],y=y0[[1]],type="scatter",mode="markers",marker=list(color=cols["DFT"],size=6,opacity=.8,line=list(color="white",width=.7)),hovertemplate="<b>DFT</b><br>Score = %{y:.1f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=xs[[2]],y=y0[[2]],type="scatter",mode="markers",marker=list(color=cols["Bipolaire"],size=6.5,opacity=.8,line=list(color="white",width=.7)),hovertemplate="<b>Bipolaire</b><br>Score = %{y:.1f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=xs[[3]],y=y0[[3]],type="scatter",mode="markers",marker=list(color=cols["Contrôle"],size=6.5,opacity=.8,line=list(color="white",width=.7)),hovertemplate="<b>Contrôle</b><br>Score = %{y:.1f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=st$ssm,y="Intergroupes<br>SS<sub>modèle</sub>",type="bar",orientation="h",xaxis="x2",yaxis="y2",marker=list(color=plotly::toRGB(couleur_modele,.72)),hovertemplate="<b>SS<sub>modèle</sub></b> = %{x:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=st$sse,y="Intragroupe<br>SS<sub>erreur</sub>",type="bar",orientation="h",xaxis="x2",yaxis="y2",marker=list(color=plotly::toRGB(couleur_erreur,.68)),hovertemplate="<b>SS<sub>erreur</sub></b> = %{x:.2f}<extra></extra>",showlegend=FALSE)
+
+moyenne_vals <- 15:55; dispersion_vals <- seq(.50,1.70,by=.05)
+etapes_m <- lapply(moyenne_vals,function(v)list(method="skip",label=as.character(v),value=v)); etapes_disp <- lapply(dispersion_vals,function(v)list(method="skip",label=paste0("× ",sub("\\.",",",sprintf("%.2f",v))),value=v))
+boutons_groupes <- lapply(groupes,function(g)list(method="skip",label=g)); bouton_reset <- list(list(method="skip",label="Réinitialiser"))
+
+p <- p |> layout(width=850,height=345,autosize=FALSE,dragmode=FALSE,hovermode="closest",uirevision="anova-faux-pas",
+  xaxis=list(domain=c(0,.60),anchor="y",title=list(text="Groupe clinique",standoff=5),tickmode="array",tickvals=1:3,ticktext=c("DFT<br>comportementale","Bipolaire","Contrôle"),range=c(.5,3.45),fixedrange=TRUE,zeroline=FALSE),
+  yaxis=list(domain=c(0,.76),anchor="x",title=list(text="Score au test des Faux Pas",standoff=5),range=c(0,60),dtick=10,fixedrange=TRUE,zeroline=FALSE),
+  xaxis2=list(domain=c(.70,1),anchor="y2",title=list(text="Somme des carrés",standoff=5),range=c(0,max(st$ssm,st$sse)*1.15),fixedrange=TRUE,zeroline=FALSE),
+  yaxis2=list(domain=c(0,.76),anchor="x2",title="",fixedrange=TRUE,categoryorder="array",categoryarray=c("Intragroupe<br>SS<sub>erreur</sub>","Intergroupes<br>SS<sub>modèle</sub>")),
+  annotations=list(list(x=.5,y=.875,xref="paper",yref="paper",text=rapport,showarrow=FALSE,xanchor="center",yanchor="middle",bgcolor="rgba(255,255,255,.96)",bordercolor=dark,borderwidth=1.2,borderpad=7,font=list(size=10,color="#222222"))),
+  updatemenus=list(list(type="buttons",direction="right",active=-1,showactive=FALSE,x=.02,xanchor="left",y=1.48,yanchor="top",font=list(size=9,color="#222222"),bgcolor="white",bordercolor=dark,borderwidth=1,pad=list(r=0,t=0),buttons=bouton_reset),
+                   list(type="buttons",direction="right",active=0,showactive=TRUE,x=.99,xanchor="right",y=1.48,yanchor="top",font=list(size=9,color="#222222"),bgcolor="white",bordercolor=orange,borderwidth=1,pad=list(r=0,t=0),buttons=boutons_groupes)),
+  sliders=list(list(active=which(moyenne_vals==29)-1L,x=.02,len=.40,y=1.17,xanchor="left",yanchor="top",ticklen=0,minorticklen=0,tickwidth=0,font=list(size=1,color="rgba(0,0,0,0)"),pad=list(t=0,b=0),currentvalue=list(prefix="Moyenne (DFT) = ",font=list(size=10,color="#222222"),visible=TRUE,xanchor="left"),transition=list(duration=0),steps=etapes_m),
+               list(active=which.min(abs(dispersion_vals-1))-1L,x=.56,len=.42,y=1.17,xanchor="left",yanchor="top",ticklen=0,minorticklen=0,tickwidth=0,font=list(size=1,color="rgba(0,0,0,0)"),pad=list(t=0,b=0),currentvalue=list(prefix="Dispersion intragroupe = ",font=list(size=10,color="#222222"),visible=TRUE,xanchor="left"),transition=list(duration=0),steps=etapes_disp)),
+  margin=list(l=72,r=24,t=116,b=58),showlegend=FALSE) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+p <- htmlwidgets::onRender(p,"
+function(el,x,d){
+var g=document.getElementById(el.id),m=d.means.slice(),f=1,cur=0,sync=false;
+function near(a,v){var k=0,q=Infinity;for(var i=0;i<a.length;i++){var z=Math.abs(a[i]-v);if(z<q){q=z;k=i}}return k}
+function update(){var s=d.baseSds.map(v=>v*f),mg=(m[0]+m[1]+m[2])/3,ssm=10*m.reduce((a,v)=>a+(v-mg)*(v-mg),0),sse=9*s.reduce((a,v)=>a+v*v,0),mse=sse/27,F=(ssm/2)/mse,p=Math.pow(27/(27+2*F),13.5),omega=(ssm-2*mse)/(ssm+sse+mse);
+for(var j=0;j<3;j++){var yy=[],xl=[],xr=[];for(var k=0;k<=300;k++){var y=60*k/300,dx=.28*Math.exp(-.5*Math.pow((y-m[j])/s[j],2));yy.push(y);xl.push(j+1);xr.push(j+1+dx)}g.data[j].x=xl.concat(xr.reverse());g.data[j].y=yy.concat(yy.slice().reverse());g.data[8+j].y=d.z[j].map(v=>m[j]+s[j]*v)}
+g.data[3].y=[mg,mg];g.data[4].y=[mg,m[0],null,mg,m[1],null,mg,m[2]];for(var j=0;j<3;j++)g.data[5+j].y=[m[j],m[j]];g.data[11].x=[ssm];g.data[12].x=[sse];g.layout.xaxis2.range=[0,Math.max(ssm,sse)*1.15];
+var pt=p<.001?'&lt; .001':'= '+p.toFixed(3).replace(/^0/,'');g.layout.annotations[0].text='<b>ANOVA :</b> <i>F</i>(2, 27) = '+F.toFixed(2).replace('.',',')+', <i>p</i> '+pt+', ω² = '+omega.toFixed(3).replace(/^0/,'');Plotly.redraw(g)}
+function syncMean(){sync=true;Plotly.relayout(g,{'sliders[0].active':near(d.meanVals,m[cur]),'sliders[0].currentvalue.prefix':'Moyenne ('+d.groups[cur]+') = '}).then(()=>sync=false)}
+function reset(){m=d.means.slice();f=1;cur=0;sync=true;Plotly.relayout(g,{'updatemenus[1].active':0,'sliders[0].active':near(d.meanVals,m[0]),'sliders[1].active':near(d.dispVals,1),'sliders[0].currentvalue.prefix':'Moyenne (DFT) = ','sliders[1].currentvalue.prefix':'Dispersion intragroupe = '}).then(()=>{sync=false;update()})}
+g.on('plotly_buttonclicked',e=>{var l=e.button.label.replace(/<[^>]*>/g,'');if(l==='Réinitialiser')reset();else if(d.groups.indexOf(l)>=0){cur=d.groups.indexOf(l);syncMean()}});
+g.on('plotly_sliderchange',e=>{if(sync)return;var pre=e.slider&&e.slider.currentvalue?e.slider.currentvalue.prefix:'',v=parseFloat(e.step.value);if(pre.indexOf('Moyenne')>=0)m[cur]=v;else f=v;update()});update()
+}",data=list(groups=groupes,means=moyennes0,baseSds=sd_base,z=z_list,meanVals=moyenne_vals,dispVals=dispersion_vals))
+
+p$elementId <- "plotly-anova-faux-pas-interactif"; p
+```
+:::
+
+## La loi de Fisher-Snedecor (à apprendre) {.smaller .titre-long}
+
+$F$ ne prend que des valeurs positives ou nulles car il s’agit d’un rapport de carrés. 
+
+Sa loi dépend de deux degrés de liberté :
+
+$$
+F_{\text{observé}}\sim F(ddl_{\text{modèle}},ddl_{\text{erreur}})\qquad\text{sous }H_0
+$$
+Ici, ddl modèle correspond au nombre de paramètres libres de la comparaison de modèles emboîtés entre le modèle augmenté et le modèle contraint. La *p*-value correspond à l’aire à droite de $F_{\text{observé}}$ sous la distribution nulle.
+
+## De la table du *F* à la valeur critique (annexe) {.smaller .titre-tres-long}
+
+<div style="font-size:0.76em;">
+Avant les logiciels, on utilisait des tables du $F$ pour obtenir la valeur critique associée à $\alpha$. Ici : $ddl_{numérateur} =2,\quad ddl_{dénominateur}=27,\quad \alpha=.05$ Soit ici : $F_{crit}(2,27)\approx 3{,}35$.
+</div>
+
+::: {style="text-align:center; margin:.0em 0 .2em;"}
+![](figs_importees/cm02_table_f_alpha_p05.png){height=340px}
+:::
+
+## Aire critique et *p*-value du *F*
+
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+
+```{r}
+#| label: fig-f-distribution
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Distribution de $F$ sous $H_0$, zone de rejet et position de la statistique observée.
+#|   <span class="note-figure"><em>Note.</em> La forme de la distribution et $F_{\mathrm{crit}}$ dépendent des degrés de liberté. La <em>p</em>-value correspond à l’aire sous $H_0$ située à droite de $F_{\mathrm{observé}}$.</span>
+#| fig-width: 9.2
+#| fig-height: 3.55
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+n_g <- 10; m <- c(29,36,45); s <- c(9,8,8.5); ddl1_0 <- 2; ddl2_0 <- 27; alpha0 <- .05
+mg <- mean(m); SS_modele <- n_g*sum((m-mg)^2); SS_erreur <- (n_g-1)*sum(s^2); Fobs0 <- (SS_modele/ddl1_0)/(SS_erreur/ddl2_0); p0 <- pf(Fobs0,ddl1_0,ddl2_0,lower.tail=FALSE); fc0 <- qf(1-alpha0,ddl1_0,ddl2_0)
+x <- seq(.01,40,length.out=2000); y0 <- df(x,ddl1_0,ddl2_0); ymax0 <- max(y0); i_fc <- x>=fc0; i_obs <- x>=Fobs0
+ddl1_vals <- 1:10; ddl2_vals <- 5:100; alpha_vals <- seq(.01,.10,by=.005); F_vals <- sort(unique(c(seq(.5,20,by=.1),Fobs0)))
+fmt <- function(x,n=2) formatC(x,format="f",digits=n,decimal.mark=","); fmt_p <- function(p) if(p<.001) "&lt; .001" else paste0("= ",sub("^0","",sprintf("%.3f",p)))
+
+p <- plot_ly() |>
+  add_trace(x=x,y=y0,type="scatter",mode="lines",line=list(color=dark,width=2),hovertemplate="F = %{x:.2f}<br>Densité = %{y:.3f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=x[i_fc],y=y0[i_fc],type="scatter",mode="lines",line=list(width=0),fill="tozeroy",fillcolor=plotly::toRGB(red,.28),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=c(fc0,fc0),y=c(0,ymax0*.46),type="scatter",mode="lines",line=list(color=red,width=2,dash="dash"),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=x,y=y0,type="scatter",mode="lines",xaxis="x2",yaxis="y2",line=list(color=dark,width=2),hovertemplate="F = %{x:.2f}<br>Densité = %{y:.3f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=x[i_obs],y=y0[i_obs],type="scatter",mode="lines",xaxis="x2",yaxis="y2",line=list(width=0),fill="tozeroy",fillcolor=plotly::toRGB(orange,.42),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=c(Fobs0,Fobs0),y=c(0,ymax0*.46),type="scatter",mode="lines",xaxis="x2",yaxis="y2",line=list(color=orange,width=2.5),hoverinfo="skip",showlegend=FALSE)
+
+etapes_d1 <- lapply(ddl1_vals,function(v) list(method="skip",label=as.character(v),value=v)); etapes_d2 <- lapply(ddl2_vals,function(v) list(method="skip",label=as.character(v),value=v))
+etapes_alpha <- lapply(alpha_vals,function(v) list(method="skip",label=sub("^0","",sprintf("%.3f",v)),value=v)); etapes_F <- lapply(F_vals,function(v) list(method="skip",label=sprintf("%.2f",v),value=v))
+
+p <- p |> layout(width=850,height=340,autosize=FALSE,dragmode=FALSE,hovermode="closest",
+  xaxis=list(domain=c(.04,.47),title=list(text="Valeur de F",standoff=5),range=c(0,10),dtick=2,fixedrange=TRUE,zeroline=FALSE),
+  yaxis=list(domain=c(0,.68),title=list(text="Densité",standoff=5),range=c(0,ymax0*1.07),fixedrange=TRUE,zeroline=FALSE),
+  xaxis2=list(domain=c(.57,1),anchor="y2",title=list(text="Valeur de F",standoff=5),range=c(0,15),dtick=3,fixedrange=TRUE,zeroline=FALSE),
+  yaxis2=list(domain=c(0,.68),anchor="x2",title=list(text="Densité",standoff=5),range=c(0,ymax0*1.07),fixedrange=TRUE,zeroline=FALSE),
+  annotations=list(
+    list(x=.255,y=.745,xref="paper",yref="paper",text="<b>Zone de rejet</b>",showarrow=FALSE,font=list(size=12,color="#222222")),
+    list(x=.785,y=.745,xref="paper",yref="paper",text="<b>Aire à droite de F observé</b>",showarrow=FALSE,font=list(size=12,color="#222222")),
+    list(x=fc0,y=.48,xref="x",yref="paper",text=paste0("<b>F<sub>crit</sub>(",ddl1_0,", ",ddl2_0,") = ",fmt(fc0),"</b><br>α = .05"),showarrow=FALSE,xanchor="left",xshift=7,bgcolor="rgba(255,255,255,.95)",bordercolor=red,borderwidth=1,borderpad=5,font=list(size=9.5,color=red)),
+    list(x=Fobs0,y=.39,xref="x2",yref="paper",text=paste0("<b>F<sub>obs</sub> = ",fmt(Fobs0),"</b><br><i>p</i> ",fmt_p(p0)),showarrow=FALSE,xanchor="right",xshift=-7,bgcolor="rgba(255,255,255,.95)",bordercolor=orange,borderwidth=1,borderpad=5,font=list(size=9.5,color=orange))),
+  sliders=list(
+    list(active=which(ddl1_vals==ddl1_0)-1L,x=.04,len=.40,y=1.39,xanchor="left",yanchor="top",ticklen=0,minorticklen=0,tickwidth=0,font=list(size=1,color="rgba(0,0,0,0)"),currentvalue=list(prefix="ddl numérateur = ",font=list(size=10,color="#222222"),xanchor="left"),transition=list(duration=0),steps=etapes_d1),
+    list(active=which(ddl2_vals==ddl2_0)-1L,x=.57,len=.43,y=1.39,xanchor="left",yanchor="top",ticklen=0,minorticklen=0,tickwidth=0,font=list(size=1,color="rgba(0,0,0,0)"),currentvalue=list(prefix="ddl dénominateur = ",font=list(size=10,color="#222222"),xanchor="left"),transition=list(duration=0),steps=etapes_d2),
+    list(active=which.min(abs(alpha_vals-alpha0))-1L,x=.04,len=.40,y=1.12,xanchor="left",yanchor="top",ticklen=0,minorticklen=0,tickwidth=0,font=list(size=1,color="rgba(0,0,0,0)"),currentvalue=list(prefix="α = ",font=list(size=10,color="#222222"),xanchor="left"),transition=list(duration=0),steps=etapes_alpha),
+    list(active=which.min(abs(F_vals-Fobs0))-1L,x=.57,len=.43,y=1.12,xanchor="left",yanchor="top",ticklen=0,minorticklen=0,tickwidth=0,font=list(size=1,color="rgba(0,0,0,0)"),currentvalue=list(prefix="F observé = ",font=list(size=10,color="#222222"),xanchor="left"),transition=list(duration=0),steps=etapes_F)),
+  margin=list(l=62,r=18,t=112,b=48)) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+p <- htmlwidgets::onRender(p,"
+function(el,x,data){
+var gd=document.getElementById(el.id),X=data.x,d1=2,d2=27,alpha=.05,fobs=data.Fobs;
+function lg(z){var c=[676.5203681218851,-1259.1392167224028,771.3234287776531,-176.6150291621406,12.507343278686905,-.13857109526572012,9.984369578019572e-6,1.5056327351493116e-7];if(z<.5)return Math.log(Math.PI)-Math.log(Math.sin(Math.PI*z))-lg(1-z);z-=1;var a=.9999999999998099;for(var i=0;i<c.length;i++)a+=c[i]/(z+i+1);var t=z+c.length-.5;return .5*Math.log(2*Math.PI)+(z+.5)*Math.log(t)-t+Math.log(a);}
+function bcf(a,b,x){var qab=a+b,qap=a+1,qam=a-1,c=1,d=1-qab*x/qap;if(Math.abs(d)<1e-300)d=1e-300;d=1/d;var h=d;for(var m=1;m<=200;m++){var m2=2*m,aa=m*(b-m)*x/((qam+m2)*(a+m2));d=1+aa*d;if(Math.abs(d)<1e-300)d=1e-300;c=1+aa/c;if(Math.abs(c)<1e-300)c=1e-300;d=1/d;h*=d*c;aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));d=1+aa*d;if(Math.abs(d)<1e-300)d=1e-300;c=1+aa/c;if(Math.abs(c)<1e-300)c=1e-300;d=1/d;var del=d*c;h*=del;if(Math.abs(del-1)<3e-12)break;}return h;}
+function ib(x,a,b){if(x<=0)return 0;if(x>=1)return 1;var bt=Math.exp(lg(a+b)-lg(a)-lg(b)+a*Math.log(x)+b*Math.log(1-x));return x<(a+1)/(a+b+2)?bt*bcf(a,b,x)/a:1-bt*bcf(b,a,1-x)/b;}
+function cdf(v){if(v<=0)return 0;var q=d1*v/(d1*v+d2);return ib(q,d1/2,d2/2);}
+function pdf(v){if(v<=0)return 0;var a=d1/2,b=d2/2,lb=lg(a)+lg(b)-lg(a+b);return Math.exp(a*Math.log(d1/d2)+(a-1)*Math.log(v)-lb-(a+b)*Math.log(1+d1*v/d2));}
+function qf(p){var lo=0,hi=1;while(cdf(hi)<p&&hi<1e4)hi*=2;for(var i=0;i<70;i++){var mid=(lo+hi)/2;if(cdf(mid)<p)lo=mid;else hi=mid;}return(lo+hi)/2;}
+function comma(v,n){return v.toFixed(n).replace('.',',');} function ptxt(p){return p<.001?'&lt; .001':'= '+p.toFixed(3).replace(/^0/,'');}
+function update(){
+var Y=X.map(pdf),ymax=Math.max.apply(null,Y),fc=qf(1-alpha),pv=Math.max(0,1-cdf(fobs)),xfc=[],yfc=[],xfo=[],yfo=[];
+for(var i=0;i<X.length;i++){if(X[i]>=fc){xfc.push(X[i]);yfc.push(Y[i]);}if(X[i]>=fobs){xfo.push(X[i]);yfo.push(Y[i]);}}
+gd.data[0].y=Y;gd.data[1].x=xfc;gd.data[1].y=yfc;gd.data[2].x=[fc,fc];gd.data[2].y=[0,ymax*.46];gd.data[3].y=Y;gd.data[4].x=xfo;gd.data[4].y=yfo;gd.data[5].x=[fobs,fobs];gd.data[5].y=[0,ymax*.46];
+gd.layout.yaxis.range=[0,ymax*1.07];gd.layout.yaxis2.range=[0,ymax*1.07];gd.layout.xaxis.range=[0,Math.min(40,Math.max(10,fc*1.35))];gd.layout.xaxis2.range=[0,Math.min(40,Math.max(15,fobs*1.35))];
+gd.layout.annotations[2].x=fc;gd.layout.annotations[2].text='<b>F<sub>crit</sub>('+d1+', '+d2+') = '+comma(fc,2)+'</b><br>α = '+alpha.toFixed(3).replace(/^0/,'');
+gd.layout.annotations[3].x=fobs;gd.layout.annotations[3].text='<b>F<sub>obs</sub> = '+comma(fobs,2)+'</b><br><i>p</i> '+ptxt(pv);Plotly.redraw(gd);}
+gd.on('plotly_sliderchange',function(e){var pre=(e.slider&&e.slider.currentvalue)?e.slider.currentvalue.prefix:'',v=parseFloat(e.step.value);if(pre.indexOf('numérateur')>=0)d1=parseInt(v);else if(pre.indexOf('dénominateur')>=0)d2=parseInt(v);else if(pre.indexOf('α')>=0)alpha=v;else if(pre.indexOf('F observé')>=0)fobs=v;update();});
+update();
+}",data=list(x=x,Fobs=Fobs0))
+
+p$elementId <- "plotly-f-distribution-interactif"; p
+```
+::: 
+
+## Décomposition des sommes des carrés {.smaller .titre-long}
+
+L’ANOVA décompose la dispersion totale en une **composante systématique**, associée aux différences entre groupes, et une **composante aléatoire**, qui reste au sein des groupes.
+
+| Source | Dispersion mesurée | Valeur |
+|:--|:--|:--:|
+| **Totale** : $SS_{\text{total}}$ | Observations autour de la **moyenne générale** | 3 241,92 |
+| **Systématique** : $SS_{\text{modèle}}$ | Moyennes des groupes autour de la **moyenne générale**, pondérées par leurs effectifs | 1 286,67 |
+| **Aléatoire** : $SS_{\text{erreur}}$ | Observations autour de la **moyenne de leur propre groupe** | 1 955,25 |
+
+$$
+\underbrace{SS_{\text{total}}}_{3\,241{,}92}
+=
+\underbrace{SS_{\text{modèle}}}_{1\,286{,}67}
++
+\underbrace{SS_{\text{erreur}}}_{1\,955{,}25}.
+$$
+
+**À retenir :** distinguer les groupes réduit l’erreur de prédiction. Cette réduction correspond à $SS_{\text{modèle}}$.
+
+## Décomposition de la variance par les sommes des carrés {.titre-tres-long}
+<!--- Ici, penser à rajouter le report stat avec omega² et IC95%--->
+
+::: {.graphique-r .plotly-stable style="--plotly-height:335px;"}
+
+```{r}
+#| label: fig-anova-dft-ss
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Les sommes des carrés quantifient différents écarts au modèle.
+#|   <span class="note-figure"><em>Note.</em> $SS_{\text{total}}=SS_{H_0}$ décrit la dispersion autour de la moyenne générale. Elle se décompose en une part modélisée, $SS_{\text{modèle}}$, et une part aléatoire restant dans les résidus, $SS_{\text{erreur}}$.</span>
+#| fig-width: 8.85
+#| fig-height: 3.35
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+library(plotly)
+
+n_g <- 10L; groupes <- c("DFT","Bipolaire","Contrôle"); m_j <- c(29,36,45); s_j <- c(9,8,8.5)
+cols <- c(DFT=green,Bipolaire=orange,Contrôle=blue); couleur_h0 <- red; couleur_modele <- orange; couleur_erreur <- blue
+
+z_list <- list(c(1.51318052,-.24278750,.05053341,1.10870790,.70068310,.38012757,-.87200731,-1.70800746,.11511320,-1.04554342),c(-1.01465878,-.25966540,-.42712852,-.76327126,1.54455138,.78829433,.37147066,.54396501,-1.69372019,.91016277),c(.68590491,-.75459779,1.16339479,1.36705270,-1.73055554,-1.03547296,.49642689,.02070577,.34148052,-.55433929))
+z_list <- lapply(z_list,function(z)as.numeric(scale(z))); obs <- Map(function(m,s,z)m+s*z,m_j,s_j,z_list)
+set.seed(20260906); x_obs <- lapply(1:3,function(j)j+runif(n_g,-.07,.07))
+m_obs <- vapply(obs,mean,numeric(1)); m <- mean(unlist(obs)); N <- 3*n_g
+SS_total <- sum(unlist(Map(function(y)(y-m)^2,obs))); SS_erreur <- sum(unlist(Map(function(y,mj)(y-mj)^2,obs,m_obs))); SS_modele <- SS_total-SS_erreur
+fmt <- function(x)formatC(x,format="f",digits=2,decimal.mark=",")
+
+s0 <- sqrt(SS_total/(N-1)); se0 <- s0/sqrt(N); lim0 <- m+c(-1,1)*1.96*se0
+s1 <- sqrt(SS_erreur/(N-3)); se1 <- s1/sqrt(n_g); lim1 <- lapply(m_obs,function(x)x+c(-1,1)*1.96*se1)
+x_bande1 <- c(1,2,3,3,2,1,1); y_bande1 <- c(lim1[[1]][2],lim1[[2]][2],lim1[[3]][2],lim1[[3]][1],lim1[[2]][1],lim1[[1]][1],lim1[[1]][2])
+
+segments_residus <- function(x,y,pred)list(x=as.vector(rbind(x,x,NA_real_)),y=as.vector(rbind(y,pred,NA_real_)))
+seg0 <- lapply(1:3,function(j)segments_residus(x_obs[[j]],obs[[j]],rep(m,n_g))); seg1 <- lapply(1:3,function(j)segments_residus(x_obs[[j]],obs[[j]],rep(m_obs[j],n_g)))
+normal_violin <- function(j,m,s){yy <- seq(0,60,length.out=401); d <- .23*dnorm(yy,m,s)/max(dnorm(yy,m,s)); list(x=c(j-d,rev(j+d)),y=c(yy,rev(yy)))}
+vl <- Map(normal_violin,1:3,m_j,s_j)
+i_dft <- which.max(abs(obs[[1]]-m_obs[1])); i_ctrl <- which.max(abs(obs[[3]]-m_obs[3]))
+
+p_gauche <- plot_ly() |>
+  add_trace(x=c(.55,3.45,3.45,.55,.55),y=c(lim0[1],lim0[1],lim0[2],lim0[2],lim0[1]),type="scatter",mode="lines",line=list(width=0),fill="toself",fillcolor=plotly::toRGB(couleur_h0,.08),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=x_bande1,y=y_bande1,type="scatter",mode="lines",visible=FALSE,line=list(width=0),fill="toself",fillcolor=plotly::toRGB(couleurs$fond,.11),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=vl[[1]]$x,y=vl[[1]]$y,type="scatter",mode="lines",name="DFT",legendgroup="DFT",line=list(color=cols["DFT"],width=1.4),fill="toself",fillcolor=plotly::toRGB(cols["DFT"],.16),hoverinfo="skip") |>
+  add_trace(x=vl[[2]]$x,y=vl[[2]]$y,type="scatter",mode="lines",name="Bipolaire",legendgroup="Bipolaire",line=list(color=cols["Bipolaire"],width=1.4),fill="toself",fillcolor=plotly::toRGB(cols["Bipolaire"],.16),hoverinfo="skip") |>
+  add_trace(x=vl[[3]]$x,y=vl[[3]]$y,type="scatter",mode="lines",name="Contrôle",legendgroup="Contrôle",line=list(color=cols["Contrôle"],width=1.4),fill="toself",fillcolor=plotly::toRGB(cols["Contrôle"],.16),hoverinfo="skip") |>
+  add_trace(x=c(seg0[[1]]$x,seg0[[2]]$x,seg0[[3]]$x),y=c(seg0[[1]]$y,seg0[[2]]$y,seg0[[3]]$y),type="scatter",mode="lines",line=list(color=couleur_h0,width=1.35),opacity=.55,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=seg1[[1]]$x,y=seg1[[1]]$y,type="scatter",mode="lines",visible=FALSE,line=list(color=cols["DFT"],width=1.45),opacity=.66,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=seg1[[2]]$x,y=seg1[[2]]$y,type="scatter",mode="lines",visible=FALSE,line=list(color=cols["Bipolaire"],width=1.45),opacity=.66,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=seg1[[3]]$x,y=seg1[[3]]$y,type="scatter",mode="lines",visible=FALSE,line=list(color=cols["Contrôle"],width=1.45),opacity=.66,hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=c(.55,3.45),y=c(m,m),type="scatter",mode="lines",line=list(color=couleur_h0,width=3),hovertemplate=paste0("<b>H₀</b><br>ŷ = m = ",fmt(m),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=1:3,y=m_obs,type="scatter",mode="lines",visible=FALSE,line=list(color=couleurs$fond,width=3.2),hovertemplate="<b>H₁</b><br>ŷ = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=c(1,1,NA,2,2,NA,3,3),y=c(m,m_obs[1],NA,m,m_obs[2],NA,m,m_obs[3]),type="scatter",mode="lines",visible=FALSE,line=list(color=couleur_modele,width=4,dash="dot"),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=x_obs[[1]],y=obs[[1]],type="scatter",mode="markers",marker=list(color=cols["DFT"],size=6,opacity=.80,line=list(color="white",width=.7)),hovertemplate="DFT<br>Score = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=x_obs[[2]],y=obs[[2]],type="scatter",mode="markers",marker=list(color=cols["Bipolaire"],size=6,opacity=.80,line=list(color="white",width=.7)),hovertemplate="Bipolaire<br>Score = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=x_obs[[3]],y=obs[[3]],type="scatter",mode="markers",marker=list(color=cols["Contrôle"],size=6,opacity=.80,line=list(color="white",width=.7)),hovertemplate="Contrôle<br>Score = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  layout(xaxis=list(title=list(text="Modalité",standoff=5),tickmode="array",tickvals=1:3,ticktext=c("DFT<br>comportementale","Bipolaire","Contrôle"),range=c(.45,3.72),fixedrange=TRUE,zeroline=FALSE),yaxis=list(title=list(text="Score au test des Faux Pas",standoff=5),range=c(0,60),dtick=10,fixedrange=TRUE,zeroline=FALSE))
+
+p_droite <- plot_ly() |>
+  add_trace(x=SS_total,y="SS<sub>total</sub>",type="bar",orientation="h",marker=list(color=plotly::toRGB(couleur_h0,.72)),hovertemplate=paste0("<b>SS<sub>total</sub></b> = ",fmt(SS_total),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=SS_modele,y="SS<sub>modèle</sub>",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleur_modele,.78)),hovertemplate=paste0("<b>SS<sub>modèle</sub></b> = ",fmt(SS_modele),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=SS_erreur,y="SS<sub>erreur</sub>",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleur_erreur,.72)),hovertemplate=paste0("<b>SS<sub>erreur</sub></b> = ",fmt(SS_erreur),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=SS_modele,y="Décomposition",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleur_modele,.78)),hovertemplate=paste0("<b>Part modélisée</b><br>SS<sub>modèle</sub> = ",fmt(SS_modele),"<extra></extra>"),showlegend=FALSE) |>
+  add_trace(x=SS_erreur,y="Décomposition",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleur_erreur,.72)),hovertemplate=paste0("<b>Part aléatoire</b><br>SS<sub>erreur</sub> = ",fmt(SS_erreur),"<extra></extra>"),showlegend=FALSE) |>
+  layout(xaxis=list(title=list(text="Somme des carrés",standoff=5),range=c(0,SS_total*1.08),fixedrange=TRUE,zeroline=FALSE),yaxis=list(title="",fixedrange=TRUE,categoryorder="array",categoryarray=c("Décomposition","SS<sub>erreur</sub>","SS<sub>modèle</sub>","SS<sub>total</sub>")),barmode="stack")
+
+p <- subplot(p_gauche,p_droite,widths=c(.63,.37),margin=.085,titleX=TRUE,titleY=TRUE)
+
+vis_total <- c(TRUE,FALSE,TRUE,TRUE,TRUE,TRUE,FALSE,FALSE,FALSE,TRUE,FALSE,FALSE,TRUE,TRUE,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE)
+vis_erreur <- c(FALSE,TRUE,TRUE,TRUE,TRUE,FALSE,TRUE,TRUE,TRUE,FALSE,TRUE,FALSE,TRUE,TRUE,TRUE,FALSE,FALSE,TRUE,FALSE,FALSE)
+vis_modele <- c(TRUE,TRUE,TRUE,TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,TRUE,TRUE,TRUE,TRUE,TRUE,TRUE,FALSE,TRUE,FALSE,FALSE,FALSE)
+vis_decomposition <- rep(TRUE,20)
+
+ann_commun <- function(titre,formule)list(list(x=.30,y=1.055,xref="paper",yref="paper",text=titre,showarrow=FALSE,xanchor="center",font=list(size=12.5,color="#222222")),list(x=.825,y=1.055,xref="paper",yref="paper",text=formule,showarrow=FALSE,xanchor="center",font=list(size=11.6,color="#222222")))
+
+ann_total <- c(ann_commun("<b>Résidus du modèle nul</b>",paste0("<b>SS<sub>total</sub> = Σ e<sub>ij,H₀</sub><sup>2</sup> = ",fmt(SS_total),"</b>")),list(
+  list(x=x_obs[[1]][i_dft],y=(obs[[1]][i_dft]+m)/2,xref="x",yref="y",text=paste0("<i>e</i><sub>ij,H₀</sub> = Y<sub>ij</sub> − ",fmt(m)),showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_h0,ax=-66,ay=-28,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_h0,borderwidth=1,borderpad=3,font=list(size=8.8)),
+  list(x=x_obs[[3]][i_ctrl],y=(obs[[3]][i_ctrl]+m)/2,xref="x",yref="y",text=paste0("<i>e</i><sub>ij,H₀</sub> = Y<sub>ij</sub> − ",fmt(m)),showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_h0,ax=66,ay=28,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_h0,borderwidth=1,borderpad=3,font=list(size=8.8))))
+
+ann_erreur <- c(ann_commun("<b>Résidus du modèle augmenté</b>",paste0("<b>SS<sub>erreur</sub> = Σ e<sub>ij,H₁</sub><sup>2</sup> = ",fmt(SS_erreur),"</b>")),list(
+  list(x=x_obs[[1]][i_dft],y=(obs[[1]][i_dft]+m_obs[1])/2,xref="x",yref="y",text="<i>e</i><sub>ij,H₁</sub> = Y<sub>ij</sub> − 29",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=cols["DFT"],ax=-66,ay=-28,bgcolor="rgba(255,255,255,.94)",bordercolor=cols["DFT"],borderwidth=1,borderpad=3,font=list(size=8.8)),
+  list(x=x_obs[[3]][i_ctrl],y=(obs[[3]][i_ctrl]+m_obs[3])/2,xref="x",yref="y",text="<i>e</i><sub>ij,H₁</sub> = Y<sub>ij</sub> − 45",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=cols["Contrôle"],ax=66,ay=28,bgcolor="rgba(255,255,255,.94)",bordercolor=cols["Contrôle"],borderwidth=1,borderpad=3,font=list(size=8.8))))
+
+ann_modele <- c(ann_commun("<b>Écart entre les prédictions des deux modèles</b>",paste0("<b>SS<sub>modèle</sub> = Σ n<sub>j</sub>(m<sub>j</sub> − m)<sup>2</sup> = ",fmt(SS_modele),"</b>")),list(
+  list(x=1,y=(m+m_obs[1])/2,xref="x",yref="y",text="<b>Part modélisée</b><br>29 − 36,67 = −7,67<br><span style='font-size:8px'>× 10 observations</span>",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_modele,ax=-77,ay=0,bgcolor="rgba(255,255,255,.95)",bordercolor=couleur_modele,borderwidth=1,borderpad=3,font=list(size=8.8)),
+  list(x=3,y=(m+m_obs[3])/2,xref="x",yref="y",text="<b>Part modélisée</b><br>45 − 36,67 = +8,33<br><span style='font-size:8px'>× 10 observations</span>",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_modele,ax=77,ay=0,bgcolor="rgba(255,255,255,.95)",bordercolor=couleur_modele,borderwidth=1,borderpad=3,font=list(size=8.8))))
+
+accolade <- list(list(type="path",xref="x",yref="y",path="M 3.43,58 C 3.58,58 3.58,53 3.58,49 C 3.58,42 3.54,38 3.41,36.67 C 3.54,35 3.58,28 3.58,21 C 3.58,13 3.58,5 3.43,5",line=list(color=couleur_h0,width=2.4),layer="above")); sans_accolade <- list()
+
+ann_decomposition <- c(ann_commun("<b>Chaque écart à H₀ se décompose</b>",paste0("<b>",fmt(SS_total)," = ",fmt(SS_modele)," + ",fmt(SS_erreur),"</b>")),list(
+  list(x=3.69,y=31.5,xref="x",yref="y",text="<b>Dispersion totale<br>relative au modèle nul</b>",textangle=-90,showarrow=FALSE,font=list(size=8.8,color=couleur_h0)),
+  list(x=3,y=(m+m_obs[3])/2,xref="x",yref="y",text="<b>Part modélisée</b>",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=couleur_modele,ax=-68,ay=-38,bgcolor="rgba(255,255,255,.94)",bordercolor=couleur_modele,borderwidth=1,borderpad=3,font=list(size=8.8)),
+  list(x=x_obs[[1]][i_dft],y=(obs[[1]][i_dft]+m_obs[1])/2,xref="x",yref="y",text="<b>Résidu restant<br>(Part aléatoire)</b>",showarrow=TRUE,arrowhead=2,arrowsize=.8,arrowwidth=1.2,arrowcolor=cols["DFT"],ax=-82,ay=36,bgcolor="rgba(255,255,255,.94)",bordercolor=cols["DFT"],borderwidth=1,borderpad=3,font=list(size=8.6))))
+
+boutons <- list(
+  list(method="update",label="SS<sub>total</sub>",args=list(list(visible=vis_total),list(annotations=ann_total,shapes=sans_accolade))),
+  list(method="update",label="SS<sub>erreur</sub>",args=list(list(visible=vis_erreur),list(annotations=ann_erreur,shapes=sans_accolade))),
+  list(method="update",label="SS<sub>modèle</sub>",args=list(list(visible=vis_modele),list(annotations=ann_modele,shapes=sans_accolade))),
+  list(method="update",label="Décomposition",args=list(list(visible=vis_decomposition),list(annotations=ann_decomposition,shapes=accolade))))
+
+p <- p |> layout(width=850,height=295,autosize=FALSE,dragmode=FALSE,hovermode="closest",barmode="stack",annotations=ann_total,shapes=sans_accolade,
+  legend=list(orientation="h",x=.015,xanchor="left",y=1.055,yanchor="bottom",font=list(size=9.1)),
+  updatemenus=list(list(type="buttons",direction="right",active=0,showactive=TRUE,x=.99,xanchor="right",y=1.30,yanchor="top",font=list(size=9,color="#222222"),bgcolor="rgba(255,255,255,1)",bordercolor=orange,borderwidth=1,pad=list(r=0,t=0),buttons=boutons)),
+  margin=list(l=78,r=28,t=62,b=53)) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+p$elementId <- "plotly-anova-dft-ss"; p
+```
+:::
+
+
+## Des degrés de liberté au calcul de *F* {.titre-long}
+
+<div style="font-size:0.98em;">
+Le modèle complet estime $k=3$ moyennes sur $N=30$ observations. Chaque **carré moyen** vaut $MS=SS/ddl$.
+
+| Source | Somme des carrés | ddl | Carré moyen |
+|:--|:--:|:--:|:--:|
+| Modèle | 1 286,67 | $k-1=2$ | $1\,286{,}67/2=643{,}33$ |
+| Erreur | 1 955,25 | $N-k=27$ | $1\,955{,}25/27=72{,}42$ |
+| Total | 3 241,92 | $N-1=29$ | |
+
+Les ddl se décomposent aussi : **$29=2+27$**. Les carrés moyens s’expriment en unités de la VD au carré.
+
+$$F(2,27)=\frac{MS_{\text{modèle}}}{MS_{\text{erreur}}}=\frac{643{,}33}{72{,}42}=8{,}88,\quad p=.001.$$
+</div>
+
+## Tailles d'effet en ANOVA: l'η² et l'ω² (à apprendre) {.smaller .titre-tres-long}
+
+<div style="font-size:0.98em;">
+Après la significativité, on décrit la force de l’association statistique, donc **l'intérêt pratique**. Les deux tailles d'effet les plus courantes en ANOVA sont l'eta² et l'omega², ce sont des **proportions de réduction de l'erreur par rapport à celle commise sous $H_0$**.
+
+→ L’eta carré ($\eta^2$) s'utilise **uniquement lorsque la comparaison de modèles se fait sur un seul paramètre libre**. Il vaut :
+
+$$
+\begin{align}
+\eta^2 = \frac{SS_{\text{modèle}}}{SS_{\text{total}}} = \frac{1286{,}67}{3241{,}92} = .397
+\end{align}
+$$
+
+→ L’omega carré ($\omega^2$) **corrige par les ddl, porte sur la population, et s'utilise dès lors que l'on intègre plus d'un paramètre libre à la fois, donc tout le temps lors des tests omnibus**. Il vaut :
+
+$$
+\begin{align}
+\omega^2
+&= \frac{SS_{\text{modèle}}-df_{\text{modèle}}MS_{\text{erreur}}}
+{SS_{\text{total}}+MS_{\text{erreur}}} = \frac{1286{,}67-(2\times72{,}42)}
+{3241{,}92+72{,}42} = .345
+\end{align}
+$$
+
+**Conclusion :** la VI Pathologie est associée au score du test des faux pas et semble responsable d'environ $35 \%$ de la variance totale dans la population ($F(2,27)=8{,}88$, $p<.001$, $\omega^2=.345$) et $\eta^2=40\%$ dans l'échantillon.
+</div>
+
+## Repères usuels pour l'η² et l'ω² en SHS (à connaître) {.smaller .titre-tres-long}
+<div style="font-size:1.14em;">
+
+| Proportion de variance expliquée | Interprétation |
+|:---:|:---:|
+| < .06 | Effet faible |
+| .06 < $\eta^2$ ou $\omega^2$  < .14 | Effet moyen |
+| .14 < $\eta^2$ ou $\omega^2$  | Effet fort |
+
+Contrairement au $d$ de Cohen, les valeurs d'$\eta^2$ sont des proportions et sont donc bornées entre 0 et 1. De plus, du fait de la correction appliquée à l'$\omega^2$ celui-ci peut prendre des valeurs négatives : cela suggère alors un modèle surparamétré et des paramètres libres négligeables.
+
+**Attention** : Dans tous les cas, ce seront les comparaisons de modèles ne différant que par un seul et unique paramètre libre qui informeront sur les différences inter-modalités cruciales et sur le sens de l'effet. La composante systématique doit donc nécessairement être redécomposée suite à un test omnibus...
+
+**Attention n°2** : Ces seuils sont surtout proposés lorsqu'un seul facteur est présent. Si on souhaite récupérer l'effet d'un facteur en présence d'autres VI que l'on souhaiterait contrôler alors il faut utiliser une taille d'effet "partielle" et les seuils proposés changent alors.
+
+</div>
+
+## Table d’ANOVA : formules de calcul {.smaller .titre-long}
+
+<div style="font-size:1.4em;">
+Les statistiques descriptives suffisent au calcul : $n_j$ est l’effectif, $m_j$ la moyenne, $s_j$ l’écart-type du groupe $j$ et $m$ la moyenne générale.
+
+| Source | Somme des carrés (SS) | ddl | Carré moyen (MS) |
+|:--|:--:|:--:|:--:|
+| Systématique | $SS_M=\sum_j n_j(m_j-m)^2$ | $k-1$ | $SS_M/(k-1)$ |
+| Aléatoire | $SS_E=\sum_j(n_j-1)s_j^2$ | $N-k$ | $SS_E/(N-k)$ |
+| Total | $SS_T=SS_M+SS_E$ | $N-1$ | |
+
+$$F=\frac{MS_M}{MS_E},\qquad \omega^2=\frac{SS_M-(k-1)MS_E}{SS_T+MS_E}.$$
+
+</div>
+
+## Table d’ANOVA appliquée à l’exemple {.smaller .titre-long}
+
+<div style="font-size:1.16em;">
+::: {.columns style="display:flex; justify-content:space-between; width:100%;"}
+
+::: {.column width="48%"}
+| Source | Formule |
+|:---:|:---:|
+| **Systématique** | $SS_M=\sum_j n_j(m_j-m_{\text{échantillon}})^2$ |
+| **Aléatoire**  | $SS_E=\sum_j(n_j-1)s_j^2$ |
+| **Total**   | $SS_T=SS_M+SS_E$ |
+:::
+
+::: {.column width="48%"}
+|  Modalité | $n$ | Moyenne $m_j$ | Écart-type $s_j$ |
+| :-------: | :-: | :-----: | :-----: |
+| DFT comp. |  10 | 29 | 9 |
+| Bipolaire |  10 | 36 | 8 |
+| Contrôle  |  10 | 45 | 8,5 |
+:::
+:::
+
+Table d'ANOVA :
+
+
+| Source | SC (*SS*) | ddl (*df*) | CM (*MS*) |  $F$ |  $p$ | $\omega^2$ |
+| :----: | :-------: | :-----: | :----: | :--: | :--: | :-----: |
+| Patho  | 1286,67 | 2 | 643,33 | 8,88 | .001 | .345 |
+| Aléatoire | 1955,25  | 27 | 72,42 | | | |
+| Total  | 3241,92 | 29 | | | | |
+
+**Report :** $F(2,27)=8.88$, $p=.001$, $\omega^2=.345$. L'effet de la Pathologie explique 35% de la variance dans la population.
+</div>
+
+## Du test omnibus aux contrastes à 1 ddl {.smaller .titre-long}
+
+<div style="font-size:1.26em;">
+
+L’omnibus, $F(2,27)=8{,}88$, $p=.001$, soutient l’existence d’une différence entre moyennes. Un **contraste** précise la comparaison et son sens.
+
+Pour chaque contraste, on construit une colonne de codage $X$ telle que $\sum_j X_j=0.$ On choisit ici son échelle pour que les ensembles de moyennes comparés soient séparés de **1 unité sur $X$**. Ainsi, dans le modèle $\widehat Y=b_0+bX,$ la pente $b$ correspond directement à la **différence de moyennes testée**.
+
+Un contraste possède **1 seul paramètre libre**.
+
+</div>
+
+## Codage de la VI {.smaller}
+
+<div style="font-size:1.24em;">
+Avec un $b_0$ (ordonnée à l'origine, ou *intercept* en anglais), un facteur à $k$ modalités nécessite $k-1$ colonnes de codage. Pour trois modalités :
+
+$$
+Y=b_0+b_1X_1+b_2X_2+e
+$$
+
+$b_1$ et $b_2$ modélisent les différences d’intérêt entre les moyennes de modalités (e.g., des contrastes orthogonaux). **C'est le codage qui détermine leur interprétation.**
+
+R, JASP et jamovi utilisent par défaut le *dummy* et le *treatment coding* (i.e., sa généralisation à plus de 2 modalités), et c'est l'ordre alphanumérique qui détermine quelle est la modalité de référence. En sciences expérimentales on préfère un *dummy* ou *treatment* coding où c'est le groupe contrôle qui est codé en 0, d'où le terme de *treatment* coding.
+
+Changer de codage ne change ni les valeurs ajustées, ni les résidus, ni les conclusions du test omnibus.
+</div>
+
+## Treatment coding {.smaller}
+
+<div style="font-size:1.27em;">
+Le *dummy* et le *treatment coding* comparent chaque modalité à une condition de référence codée 0, par défaut la première dans l'ordre alphanumérique. Il vaut mieux remplacer cette modalité de référence par celle qui fait le plus de sens pour votre interprétation : votre modalité contrôle.
+
+| Modalité | $X_1$ : DFT | $X_2$ : Bipolaire | Tendance centrale |
+| :----------: | :----------: | :----------: | :-------: |
+| Contrôle | 0 | 0 | $b_0$ |
+| DFT comp. | 1 | 0 | $b_0+b_1$ |
+| Bipolaire | 0 | 1 | $b_0+b_2$ |
+
+Ici, la modalité **Contrôle** est la référence :
+
+$$
+b_0=45,\qquad b_1=29-45=-16,\qquad b_2=36-45=-9
+$$
+</div>
+
+## Deux contrastes orthogonaux pour trois groupes {.smaller .titre-tres-long}
+
+<div style="font-size:0.87em;">
+Avec $k=3$ modalités, l’effet possède **2 ddl**. On choisit deux contrastes orthogonaux :
+$$C_1=m_{\text{DFT}}-m_{\text{Bipolaire}},\qquad C_2=\frac{m_{\text{DFT}}+m_{\text{Bipolaire}}}{2}-m_{\text{Contrôle}}.$$
+
+On normalise les colonnes de codage pour que les deux ensembles comparés soient séparés de **1 unité sur $X$** :
+
+::: {.columns style="display:flex; justify-content:flex-start; align-items:center; gap:2em; margin-left:1.5em;"}
+::: {.column width="27%"}
+
+| Modalité | $X_1:C_1$ | $X_2:C_2$ |
+|:--|:--:|:--:|
+| Contrôle | $0$ | $-2/3$ |
+| DFT | $+1/2$ | $+1/3$ |
+| Bipolaire | $-1/2$ | $+1/3$ |
+
+:::
+::: {.column width="42%"}
+
+$$
+\begin{aligned}
+\Delta X_1
+&=\frac12-\left(-\frac12\right)=1,\\[0.8em]
+\Delta X_2
+&=\frac13-\left(-\frac23\right)=1.
+\end{aligned}
+$$
+
+:::
+:::
+
+Chaque colonne somme à zéro et les deux colonnes sont **orthogonales** (produit scalaire = 0) :
+
+$$
+\left\langle X_1,X_2\right\rangle
+=
+0\times\left(-\frac23\right)
++\frac12\times\frac13
+-\frac12\times\frac13
+=0.
+$$
+
+**À apprendre.** Si les deux contrastes sont orthogonaux alors ils décomposent les **2 ddl du facteur en deux comparaisons indépendantes à 1 ddl**.
+
+</div>
+
+## *Orthogonal contrast coding* {.smaller}
+
+<div style="font-size:0.86em;">
+
+Le modèle utilise les deux colonnes orthogonales précédentes : $\widehat Y=b_0+b_1X_1+b_2X_2.$ Ici, Comme les colonnes somment à zéro, l'ordonnée à l'origine $b_0$ correspond à la **moyenne générale** :
+
+$$
+b_0=m_{\text{échantillon}}
+=\frac{45+29+36}{3}
+=36{,}67.
+$$
+
+Comme chaque contraste sépare les moyennes comparées de **1 unité sur $X$**, les coefficients $b_1$ et $b_2$ correspondent directement aux différences de moyennes :
+
+$$
+b_1=m_{\mathrm{DFT}}-m_{\mathrm{Bipolaire}}
+=29-36=-7,
+$$
+
+$$
+b_2=
+\frac{m_{\mathrm{DFT}}+m_{\mathrm{Bipolaire}}}{2}
+-m_{\mathrm{Contrôle}}
+=
+\frac{29+36}{2}-45
+=-12{,}5.
+$$
+
+| Modalité $j$ | $X_1:C_1$ | $X_2:C_2$ | Valeur ajustée |
+|:--:|:--:|:--:|:--:|
+| Contrôle | $0$ | $-2/3$ | $b_0-\frac23b_2$ |
+| DFT | $+1/2$ | $+1/3$ | $b_0+\frac12b_1+\frac13b_2$ |
+| Bipolaire | $-1/2$ | $+1/3$ | $b_0-\frac12b_1+\frac13b_2$ |
+
+→ Le codage change l'interprétation des paramètres, mais **pas les valeurs ajustées, les résidus ni le test omnibus**.
+
+</div>
+
+## Représentation graphique de l’ANOVA à un facteur {.smaller .titre-tres-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+```{r}
+#| label: fig-anova-dft-lm
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Deux paramétrisations d’un même modèle d’ANOVA à un facteur.
+#|   <span class="note-figure"><em>Note.</em> Le codage modifie l’interprétation des paramètres, mais pas les prédites ni le test omnibus. Les segments horizontaux en bas de graphe indiquent les comparaisons à 1 ddl associées aux deux codages, leur encart rapportent les tests sur $b_1$ et $b_2$.</span>
+#| fig-width: 8.85
+#| fig-height: 3.65
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+library(plotly)
+
+n_g <- 10L; groupes <- c("Contrôle","DFT","Bipolaire"); m_j <- c(45,29,36); s_j <- c(8.5,9,8); couleurs_groupes <- c("Contrôle"=blue,"DFT"=green,"Bipolaire"=orange)
+set.seed(20260903); z <- lapply(1:3,function(j)as.numeric(scale(rnorm(n_g)))); obs <- Map(function(m,s,z)m+s*z,m_j,s_j,z)
+set.seed(20260904); jitter <- lapply(1:3,function(j)runif(n_g,-.065,.065))
+
+dat <- data.frame(score=unlist(obs),groupe=factor(rep(groupes,each=n_g),levels=groupes)); fit_aov <- aov(score~groupe,data=dat); tab <- summary(fit_aov)[[1]]
+SS_modele <- tab[1,"Sum Sq"]; SS_erreur <- tab[2,"Sum Sq"]; df_modele <- tab[1,"Df"]; df_erreur <- tab[2,"Df"]; MS_erreur <- tab[2,"Mean Sq"]; SS_total <- SS_modele+SS_erreur
+se_fit <- sqrt(MS_erreur/n_g); lower <- m_j-1.96*se_fit; upper <- m_j+1.96*se_fit
+fmt <- function(x,n=2)formatC(x,format="f",digits=n,decimal.mark=","); fmtp <- function(p)if(p<.001)"&lt; .001" else paste0("= ",sub("^0","",sprintf("%.3f",p))); fmteta <- function(x)sub("^0","",sprintf("%.3f",x))
+
+m_echantillon <- mean(m_j); m_clinique <- mean(m_j[2:3])
+treatment <- list(b0=m_j[1],b1=m_j[2]-m_j[1],b2=m_j[3]-m_j[1]); orthogonal <- list(b0=m_echantillon,b1=m_j[2]-m_j[3],b2=m_clinique-m_j[1])
+contrast_stats <- function(c){est <- sum(c*m_j); SS <- est^2/sum(c^2/n_g); F <- SS/MS_erreur; p <- pf(F,1,df_erreur,lower.tail=FALSE); list(est=est,SS=SS,F=F,p=p,eta2=SS/SS_total)}
+tr1 <- contrast_stats(c(-1,1,0)); tr2 <- contrast_stats(c(-1,0,1)); oc1 <- contrast_stats(c(0,1,-1)); oc2 <- contrast_stats(c(-1,.5,.5))
+
+normal_violin <- function(j,m,s,width=.21){yy <- seq(max(0,m-3.5*s),min(65,m+3.5*s),length.out=401); dd <- width*dnorm(yy,m,s)/dnorm(m,m,s); list(x=c(j-dd,rev(j+dd)),y=c(yy,rev(yy)))}
+violins <- Map(normal_violin,1:3,m_j,s_j)
+
+model_band <- list(type="path",xref="x",yref="y",path=sprintf("M 1,%.3f L 2,%.3f L 3,%.3f L 3,%.3f L 2,%.3f L 1,%.3f Z",upper[1],upper[2],upper[3],lower[3],lower[2],lower[1]),fillcolor="rgba(63,77,83,.11)",line=list(width=0),layer="below")
+baseline <- function(y)list(type="line",xref="x",yref="y",x0=.65,x1=3.35,y0=y,y1=y,line=list(color=couleurs$fond,width=1.5,dash="dash"),layer="below")
+segment <- function(x,y0,y1)list(type="line",xref="x",yref="y",x0=x,x1=x,y0=y0,y1=y1,line=list(color=couleurs$fond,width=1.7,dash="dot"),layer="above")
+bracket <- function(x0,x1,y,h=.65)list(type="path",xref="x",yref="y",path=sprintf("M %.3f,%.3f L %.3f,%.3f L %.3f,%.3f L %.3f,%.3f",x0,y+h,x0,y,x1,y,x1,y+h),line=list(color=couleurs$fond,width=1.35),layer="above")
+
+y_bracket1 <- -2; y_bracket2 <- -10.4
+shapes_treatment <- c(list(model_band),list(baseline(treatment$b0),segment(2,treatment$b0,m_j[2]),segment(3,treatment$b0,m_j[3]),bracket(1,2,y_bracket1),bracket(1,3,y_bracket2)))
+shapes_orthogonal <- c(list(model_band),list(baseline(orthogonal$b0),bracket(2,3,y_bracket1),bracket(1,3,y_bracket2)))
+
+axe_treatment <- list(title=list(text="Codage des modalités",standoff=5),tickmode="array",tickvals=1:3,ticktext=c("Contrôle<br>(X1 = 0, X2 =0)<br>Référence","DFT<br>(X1 = 1, X2 =  0)","Bipolaire<br>(X1 = 0, X2 = 1)"),range=c(.55,3.45),fixedrange=TRUE,zeroline=FALSE)
+axe_orthogonal <- list(title=list(text="Codage des modalités",standoff=5),tickmode="array",tickvals=1:3,ticktext=c("Contrôle<br>(X1 = 0, X2 = -2/3)","DFT<br>(X1 = +1/2, X2 = +1/3)","Bipolaire<br>(X1 = -1/2, X2 =  +1/3)"),range=c(.55,3.45),fixedrange=TRUE,zeroline=FALSE)
+
+comp_box <- function(x,y,label,s,width=260,bordercolor="rgba(63,77,83,.70)")list(x=x,y=y,xref="x",yref="y",text=paste0("<b>",label,"</b><br><i>F</i>(1, ",df_erreur,") = ",fmt(s$F)," · <i>p</i> ",fmtp(s$p)," · η² = ",fmteta(s$eta2)),showarrow=FALSE,xanchor="center",yanchor="top",align="center",width=width,bgcolor="rgba(255,255,255,.98)",bordercolor=bordercolor,borderwidth=1,borderpad=2,font=list(size=8.6,color=couleurs$fond))
+
+annotations_treatment <- list(
+  list(x=.88,y=treatment$b0,text=paste0("<i>b</i><sub>0</sub> = ",fmt(treatment$b0,0)),showarrow=TRUE,arrowhead=0,arrowwidth=1,arrowcolor=couleurs$fond,ax=-48,ay=-38,bgcolor="rgba(255,255,255,.98)",bordercolor=couleurs$fond,borderwidth=1,borderpad=4,font=list(size=10.2,color=couleurs$fond)),
+  comp_box(1.5,15,"b₁ : DFT - Contrôle = -16",tr1,160,orange),
+  comp_box(2.5,5,"b₂ : Bipolaire - Contrôle = -9",tr2,160,orange))
+
+annotations_orthogonal <- list(
+  list(x=1.75,y=orthogonal$b0,text=paste0("<i>b</i><sub>0</sub> = m<sub>échantillon</sub> = ",fmt(orthogonal$b0)),showarrow=TRUE,arrowhead=0,arrowwidth=1,arrowcolor=couleurs$fond,ax=0,ay=-52,bgcolor="rgba(255,255,255,.98)",bordercolor=couleurs$fond,borderwidth=1,borderpad=4,font=list(size=9.8,color=couleurs$fond)),
+  list(x=2.52,y=m_clinique,text="m<sub>DFT+Bipolaire</sub> = 32,5",showarrow=TRUE,arrowhead=0,arrowwidth=1,arrowcolor=couleurs$fond,ax=68,ay=-32,bgcolor="rgba(255,255,255,.97)",bordercolor="rgba(63,77,83,.65)",borderwidth=1,borderpad=3,font=list(size=8.5,color=couleurs$fond)),
+  comp_box(2.5,15,"b₁ : DFT - Bipolaire = -7",oc1,160,orange),
+  comp_box(1.5,5,"b₂ : Pathos - Contrôle = -12,5",oc2,170,orange))
+
+p <- plot_ly()
+for(j in 1:3)p <- p |>
+  add_trace(x=violins[[j]]$x,y=violins[[j]]$y,type="scatter",mode="lines",name=groupes[j],legendgroup=groupes[j],line=list(color=couleurs_groupes[j],width=1.4),fill="toself",fillcolor=plotly::toRGB(couleurs_groupes[j],.16),hoverinfo="skip") |>
+  add_trace(x=j+jitter[[j]],y=obs[[j]],type="scatter",mode="markers",showlegend=FALSE,marker=list(color=couleurs_groupes[j],size=6,opacity=.72,line=list(color="white",width=.7)),hovertemplate=paste0(groupes[j],"<br>Score = %{y:.2f}<extra></extra>")) |>
+  add_trace(x=c(j-.20,j+.20),y=rep(m_j[j],2),type="scatter",mode="lines",showlegend=FALSE,line=list(color=couleurs_groupes[j],width=2.5,dash="dash"),hovertemplate=paste0(groupes[j],"<br>m = ",fmt(m_j[j],0),"<extra></extra>"))
+
+p <- p |> add_trace(x=1:3,y=m_j,customdata=rep(se_fit,3),type="scatter",mode="lines+markers",showlegend=FALSE,line=list(color=couleurs$fond,width=3),marker=list(color=couleurs$fond,size=5),hovertemplate="Valeur ajustée = %{y:.2f}<br>SE = %{customdata:.2f}<extra></extra>")
+
+boutons <- list(
+  list(method="update",label="<i>Treatment coding</i>",args=list(list(),list(xaxis=axe_treatment,annotations=annotations_treatment,shapes=shapes_treatment))),
+  list(method="update",label="<i>Orthogonal coding</i>",args=list(list(),list(xaxis=axe_orthogonal,annotations=annotations_orthogonal,shapes=shapes_orthogonal))))
+
+p <- p |> layout(width=850,height=345,autosize=FALSE,dragmode=FALSE,hovermode="closest",
+  title=list(text="<b>Paramètres libres de l’ANOVA à un facteur</b>",x=.5,xanchor="center",y=.99,yanchor="top",font=list(size=17.5,color="#222222")),
+  xaxis=axe_treatment,yaxis=list(title=list(text="Score au test des Faux Pas",standoff=5),range=c(-22,65),tickmode="array",tickvals=seq(0,60,10),fixedrange=TRUE,zeroline=FALSE),
+  annotations=annotations_treatment,shapes=shapes_treatment,
+  legend=list(orientation="h",x=.015,xanchor="left",y=1.045,yanchor="bottom",font=list(size=9.4)),
+  updatemenus=list(list(type="buttons",direction="right",active=0,showactive=TRUE,x=.99,xanchor="right",y=1.20,yanchor="top",font=list(size=9,color="#222222"),bgcolor="rgba(255,255,255,1)",bordercolor=orange,borderwidth=1,pad=list(r=0,t=0),buttons=boutons)),
+  margin=list(l=78,r=42,t=88,b=78)) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+p$elementId <- "plotly-anova-dft-codage"; p
+```
+:::
+
+## Contraste C₁ : DFT et Bipolaire {.smaller}
+
+<div style="font-size:1.08em;">
+
+Le premier contraste utilise :
+
+$$
+X_1:
+\qquad
+\text{Contrôle}=0,\quad
+\text{DFT}=+\frac12,\quad
+\text{Bipolaire}=-\frac12.
+$$
+
+Les deux moyennes comparées sont séparées de **1 unité sur $X_1$** :
+
+$$
+\Delta X_1=
+\frac12-\left(-\frac12\right)=1.
+$$
+
+La pente représente donc directement leur différence :
+
+$$
+b_1=m_{\mathrm{DFT}}-m_{\mathrm{Bipolaire}}
+=29-36=-7.
+$$
+
+La somme des carrés associée vaut : $SS_{C_1}=245,$ avec :
+
+$$
+F_{C_1}(1,27)
+=\frac{245}{72{,}42}
+=3{,}38,
+\qquad p=.077.
+$$
+
+</div>
+
+## Contraste C₂ : Pathologies et Contrôle {.smaller}
+
+<div style="font-size:1.06em;">
+
+Le second contraste utilise :
+
+$$
+X_2:
+\qquad
+\text{Contrôle}=-\frac23,\quad
+\text{DFT}=+\frac13,\quad
+\text{Bipolaire}=+\frac13.
+$$
+
+La moyenne des deux groupes pathologiques et le groupe contrôle sont séparés de **1 unité sur $X_2$** :
+
+$$
+\Delta X_2=
+\frac13-\left(-\frac23\right)=1.
+$$
+
+La pente représente donc directement :
+
+$$
+b_2=
+\frac{m_{\mathrm{DFT}}+m_{\mathrm{Bipolaire}}}{2}
+-m_{\mathrm{Contrôle}}
+=
+\frac{29+36}{2}-45
+=-12{,}5.
+$$
+
+La somme des carrés associée vaut $SS_{C_2}= =1041.67,$ avec :
+
+$$
+F_{C_2}(1,27)
+=\frac{1041{,}67}{72{,}42}
+=14{,}38,
+\qquad p<.001.
+$$
+
+</div>
+
+## Reconstituer la composante systématique {.smaller .titre-long}
+
+<div style="font-size:1.22em;">
+Modèle : $\hat Y = b_0 + b_1 \times X_1+ b_2 \times X_2$
+
+SC : $SS_{\text{modèle}}=SS_{C_1}+SS_{C_2}=245+1041{,}67=1286{,}67$
+
+| Source | Estimateur | SC | ddl | CM | $F$ | $p$ | Taille d'effet |
+| :--------------- | :------: | :------: | :--: | :------: | :---: | :---: | :---: |
+| Pathologie |  | 1286,67 | 2 | 643,33 | 8,88 | .001 | $\omega^2 = .345$ |
+| $\qquad\hookrightarrow C_1$ : DFT vs Bipolaire | $b_1=-7{,}00$ | 245,00 | 1 | 245,00 | 3,38 | .077 | $\eta^2 = .076$ |
+| $\qquad\hookrightarrow C_2$ : Pathos vs Contrôle | $b_2=-12{,}50$ | 1041,67 | 1 | 1041,67 | 14,38 | < .001 | $\eta^2 = .321$ |
+| Erreur |  | 1955,25 | 27 | 72,42 | | | |
+| Total |  | 3241,92 | 29 | | | | |
+
+</div>
+
+## Conditions d’application des LM (à apprendre) {.smaller .titre-tres-long}
+
+**Les hypothèses portent sur la composante aléatoire du modèle**. En découlent les conditions d'application suivantes :
+
+<div style="font-size:0.78em;">
+::: {style="border:4.5px solid #E69F55; border-radius:6px; padding:.075em .7em; background:rgba(255,255,255,1.);"}
+
+→ **Normalité** : les résidus suivent approximativement une loi $\mathcal{N}$ dans chaque modalité. Autrement dit les violons de chaque modalité doivent avoir une forme de **cloche symétrique** autour de la moyenne ($\approx C_{50}$) de la modalité et **non applatie**. Enfin, les queues de la distribution ne doivent pas non plus être trop épaisses.
+
+→ **Homoscédasticité** : la dispersion des résidus est comparable entre les modalités, elle ne doit pas dépendre de la ou des VI. Si l'on peut dessiner un entonnoir reliant le violon d'une modalité à une autre alors elle est bafouée. Cela **arrive souvent avec les VD bornées** (décomptes, proportions et variables binaires, temps de réaction, etc.).
+
+→ **Indépendance** : un résidu ne doit pas permettre de prédire systématiquement les autres. **Les résidus sont inter-dépendants en cas de mesures répétées si on applique le mauvais modèle (il faut traiter les différences intra-individuelles ici).** 
+
+→ **En ANOVA à mesures répétées, on ajoute l’hypothèse de sphéricité**, abordée plus tard.
+
+→ **S'il existe au moins une VI quantitative (modèles d'ANCOVA et de régression), on ajoute l'hypothèse de linéarité dans les paramètres/dans la forme fonctionnelle**, abordée elle aussi plus tard.
+:::
+
+**Nota** : Ces hypothèses concernent les modèles à composante aléatoire gaussienne et demandent avant tout à ce que le modèle *fit* bien les données. À d'autres composantes aléatoires, d'autres conditions d'application.
+
+</div>
+
+## Normalité des résidus (à apprendre) {.smaller .titre-tres-long}
+
+<div style="font-size:1.15em;">
+On pose $e_i\sim\mathcal N(0,\sigma^2)$.
+
+Le **test de Shapiro-Wilk** est souvent utilisé pour tester cette condition d'application. Seulement, il ne constitue pas une preuve de normalité : un petit échantillon peut manquer de puissance, tandis qu’un grand échantillon peut rendre significatifs des écarts minimes.
+
+Enfin, on pourra aussi se servir des indices du *skewness* et du *kurtosis* servant respectivement à estimer l'asymétrie et l'aplatissement de la distribution. Le *skewness* doit tendre vers 0 ($\leq 2$) tandis que le *kurtosis* ne doit pas être excessif ($\leq 7$, idéalement proche de 3) si l'effectif est suffisamment grand, **mais l'évaluation graphique doit toujours rester prioritaire**.
+
+**A apprendre** : Pour l'évaluation graphique de la normalité on peut utiliser un **Q-Q plot** et la forme de la distribution des résidus (leur densité via les violons !).
+
+Un plan équilibré rend l’ANOVA relativement robuste à des écarts modérés, surtout lorsque les effectifs sont suffisants.
+</div>
+
+## Évaluation graphique de la normalité des résidus {.smaller .titre-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:345px;"}
+
+```{r}
+#| label: fig-normalite-residus
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Distribution des résidus, Q-Q plots et test de Shapiro–Wilk selon l’effectif.
+#|   <span class="note-figure"><em>Note.</em>La médiane ($C_{50}$, en orange), doit être à peu près la moyenne des résidus (donc 0) si on pose l'hypothèse d'une loi $\mathcal N$. $\gamma_1$ = <em>skewness</em> ; $\kappa$ = <em>kurtosis</em> de Pearson ($\kappa=3$ sous normalité). Les lois Binomiale ($\mathcal B$), Gamma ($\Gamma$) et de Poisson ($\mathcal P$) illustrent respectivement des VD binaires/proportions, des temps de réaction et des décomptes. Shapiro–Wilk peut faire des faux positifs et faux négatifs.</span>
+#| fig-width: 9.2
+#| fig-height: 3.55
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+library(plotly); library(htmlwidgets)
+
+n_vals <- c(12,20,30,50,100,200,500,1000,2000,5000); n0 <- 30; max_n <- max(n_vals); ni0 <- which(n_vals==n0)
+set.seed(20260908); normale <- rnorm(max_n)
+set.seed(20260909); binomiale <- rbinom(max_n,size=5,prob=.15)
+set.seed(20260910); gamma <- rgamma(max_n,shape=2,scale=1)
+set.seed(20260911); poisson <- rpois(max_n,lambda=2)
+samples <- list(normale,binomiale,gamma,poisson); noms <- c("Normale (𝒩)","Binomiale (ℬ)","Gamma (Γ)","Poisson (𝒫)")
+skew_theo <- c(0,(1-2*.15)/sqrt(5*.15*.85),2/sqrt(2),1/sqrt(2)); kurt_theo <- c(3,3+(1-6*.15*.85)/(5*.15*.85),3+6/2,3+1/2)
+
+std <- function(x){s <- sd(x);if(!is.finite(s)||s==0)return(x-mean(x));(x-mean(x))/s}
+sw <- function(x){if(length(unique(x))<2)return(list(W=NA_real_,p=NA_real_));z <- shapiro.test(x);list(W=unname(z$statistic),p=z$p.value)}
+sw_all <- lapply(samples,function(x)lapply(n_vals,function(n)sw(x[seq_len(n)]))); qq_theo <- lapply(n_vals,function(n)qnorm(ppoints(n))); s0 <- lapply(samples,function(x)std(x[seq_len(n0)]))
+half_violin <- function(v){d <- density(v,n=180,adjust=.9);list(x=c(rep(1,length(d$x)),rev(1+.28*d$y/max(d$y))),y=c(d$x,rev(d$x)))}
+qqdat <- function(v){o <- sort(v);th <- qnorm(ppoints(length(v)));q <- quantile(o,c(.25,.75));sl <- diff(q)/diff(qnorm(c(.25,.75)));it <- q[1]-sl*qnorm(.25);list(x=th,y=o,lx=range(th),ly=it+sl*range(th))}
+hv0 <- lapply(s0,half_violin); qq0 <- lapply(s0,qqdat); set.seed(20260912); jit0 <- lapply(1:4,function(j).63+runif(n0,0,.16))
+fmtp <- function(p)if(is.na(p))"—" else if(p<.001)"&lt; .001" else paste0("= ",sub("^0","",sprintf("%.3f",p)))
+fmtn <- function(x)sub("^0","",formatC(x,format="f",digits=3,decimal.mark=","))
+encart <- function(j,i)paste0("<b>",noms[j],"</b><br>γ₁ = ",fmtn(skew_theo[j]),"  ·  κ = ",fmtn(kurt_theo[j]),"<br><i>W</i> = ",sub("^0","",sprintf("%.3f",sw_all[[j]][[i]]$W)),"  ·  <i>p</i> ",fmtp(sw_all[[j]][[i]]$p))
+
+p <- plot_ly()
+for(j in 1:4){ax <- if(j==1)"x" else paste0("x",j);ay <- if(j==1)"y" else paste0("y",j);p <- p |>
+  add_trace(x=c(.50,1.35),y=c(0,0),type="scatter",mode="lines",xaxis=ax,yaxis=ay,line=list(color=dark,width=.8),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=hv0[[j]]$x,y=hv0[[j]]$y,type="scatter",mode="lines",xaxis=ax,yaxis=ay,line=list(color=blue,width=1.5),fill="toself",fillcolor=plotly::toRGB(blue,.20),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=jit0[[j]],y=s0[[j]],type="scatter",mode="markers",xaxis=ax,yaxis=ay,marker=list(color=blue,size=5.4,opacity=.60,line=list(color="white",width=.5)),hovertemplate="Résidu = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=c(1,1.30),y=rep(median(s0[[j]]),2),type="scatter",mode="lines",xaxis=ax,yaxis=ay,line=list(color=orange,width=2),hovertemplate="Médiane = %{y:.2f}<extra></extra>",showlegend=FALSE)}
+for(j in 1:4){num <- j+4;p <- p |>
+  add_trace(x=qq0[[j]]$x,y=qq0[[j]]$y,type="scatter",mode="markers",xaxis=paste0("x",num),yaxis=paste0("y",num),marker=list(color=blue,size=5,opacity=.82),hovertemplate="Quantile théorique = %{x:.2f}<br>Quantile observé = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=qq0[[j]]$lx,y=qq0[[j]]$ly,type="scatter",mode="lines",xaxis=paste0("x",num),yaxis=paste0("y",num),line=list(color=orange,width=1.7),hoverinfo="skip",showlegend=FALSE)}
+
+dom <- list(c(.015,.242),c(.265,.492),c(.515,.742),c(.765,.992))
+rng <- function(v,p=c(.005,.995)){r <- quantile(v,p);d <- diff(r);if(!is.finite(d)||d==0)d <- 1;c(r[1]-.10*d,r[2]+.10*d)}
+anns <- list(
+  list(x=.5,y=1.10,xref="paper",yref="paper",text="<b>Distribution des résidus</b>",showarrow=FALSE,font=list(size=11.3,color="#222222")),
+  list(x=.5,y=.405,xref="paper",yref="paper",text="<b>Q-Q plots</b> : comparaison à une distribution normale",showarrow=FALSE,font=list(size=11.3,color="#222222")),
+  list(x=.46,y=-.075,xref="paper",yref="paper",text="Quantiles théoriques de la loi normale",showarrow=FALSE,xanchor="center",font=list(size=10,color="#222222")))
+for(j in 1:4)anns <- c(anns,list(list(x=mean(dom[[j]]),y=.875,xref="paper",yref="paper",text=encart(j,ni0),showarrow=FALSE,xanchor="center",yanchor="middle",align="center",bgcolor="rgba(255,255,255,.97)",bordercolor=if(sw_all[[j]][[ni0]]$p<.05)red else green,borderwidth=1.2,borderpad=6,font=list(size=8.1,color="#222222"))))
+
+steps_n <- lapply(seq_along(n_vals),function(i)list(method="skip",label=as.character(n_vals[i]),value=i-1L))
+p <- p |> layout(width=850,height=335,autosize=FALSE,dragmode=FALSE,hovermode="closest",annotations=anns,
+  xaxis=list(domain=dom[[1]],anchor="y",range=c(.48,1.36),showticklabels=FALSE,fixedrange=TRUE,zeroline=FALSE),yaxis=list(domain=c(.50,.77),anchor="x",title=list(text="Résidus",standoff=2),range=rng(s0[[1]]),fixedrange=TRUE,zeroline=FALSE),
+  xaxis2=list(domain=dom[[2]],anchor="y2",range=c(.48,1.36),showticklabels=FALSE,fixedrange=TRUE,zeroline=FALSE),yaxis2=list(domain=c(.50,.77),anchor="x2",range=rng(s0[[2]]),fixedrange=TRUE,zeroline=FALSE),
+  xaxis3=list(domain=dom[[3]],anchor="y3",range=c(.48,1.36),showticklabels=FALSE,fixedrange=TRUE,zeroline=FALSE),yaxis3=list(domain=c(.50,.77),anchor="x3",range=rng(s0[[3]]),fixedrange=TRUE,zeroline=FALSE),
+  xaxis4=list(domain=dom[[4]],anchor="y4",range=c(.48,1.36),showticklabels=FALSE,fixedrange=TRUE,zeroline=FALSE),yaxis4=list(domain=c(.50,.77),anchor="x4",range=rng(s0[[4]]),fixedrange=TRUE,zeroline=FALSE),
+  xaxis5=list(domain=dom[[1]],anchor="y5",range=range(qq0[[1]]$x),fixedrange=TRUE,zeroline=FALSE),yaxis5=list(domain=c(.03,.34),anchor="x5",title=list(text="Quantiles observés",standoff=2),range=rng(s0[[1]],c(.001,.999)),fixedrange=TRUE,zeroline=FALSE),
+  xaxis6=list(domain=dom[[2]],anchor="y6",range=range(qq0[[2]]$x),fixedrange=TRUE,zeroline=FALSE),yaxis6=list(domain=c(.03,.34),anchor="x6",range=rng(s0[[2]],c(.001,.999)),fixedrange=TRUE,zeroline=FALSE),
+  xaxis7=list(domain=dom[[3]],anchor="y7",range=range(qq0[[3]]$x),fixedrange=TRUE,zeroline=FALSE),yaxis7=list(domain=c(.03,.34),anchor="x7",range=rng(s0[[3]],c(.001,.999)),fixedrange=TRUE,zeroline=FALSE),
+  xaxis8=list(domain=dom[[4]],anchor="y8",range=range(qq0[[4]]$x),fixedrange=TRUE,zeroline=FALSE),yaxis8=list(domain=c(.03,.34),anchor="x8",range=rng(s0[[4]],c(.001,.999)),fixedrange=TRUE,zeroline=FALSE),
+  sliders=list(list(active=ni0-1L,x=.31,len=.38,y=1.31,xanchor="left",yanchor="top",ticklen=0,minorticklen=0,tickwidth=0,font=list(size=1,color="rgba(0,0,0,0)"),pad=list(t=0,b=0),currentvalue=list(prefix="Effectif n = ",font=list(size=10,color="#222222"),xanchor="center"),transition=list(duration=0),steps=steps_n)),
+  margin=list(l=48,r=10,t=78,b=38)) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+p <- htmlwidgets::onRender(p,"
+function(el,x,data){
+var gd=document.getElementById(el.id),ni=data.init,red=data.colors.red,green=data.colors.green;
+function mean(a){var s=0;for(var i=0;i<a.length;i++)s+=a[i];return s/a.length;}
+function sd(a){var m=mean(a),s=0;for(var i=0;i<a.length;i++)s+=(a[i]-m)*(a[i]-m);return Math.sqrt(s/(a.length-1));}
+function standard(a){var m=mean(a),s=sd(a);return a.map(function(v){return s>0?(v-m)/s:v-m;});}
+function sorted(a){return a.slice().sort(function(a,b){return a-b;});}
+function q(s,p){var h=(s.length-1)*p,i=Math.floor(h),f=h-i;return s[i]*(1-f)+s[Math.min(i+1,s.length-1)]*f;}
+function range(a,p1,p2){var s=sorted(a),lo=q(s,p1),hi=q(s,p2),d=hi-lo;if(!(d>0))d=1;return[lo-.10*d,hi+.10*d];}
+function kde(a){var s=sorted(a),n=a.length,ss=sd(a),iq=(q(s,.75)-q(s,.25))/1.349,sc=Math.min(ss,iq>0?iq:ss),h=.9*sc*Math.pow(n,-.2);if(!(h>0))h=.25;var rr=range(a,.005,.995),yy=[],dd=[],mx=0;for(var k=0;k<=120;k++){var y=rr[0]+(rr[1]-rr[0])*k/120,z=0;for(var i=0;i<n;i++){var u=(y-a[i])/h;z+=Math.exp(-.5*u*u);}z/=n*h*Math.sqrt(2*Math.PI);yy.push(y);dd.push(z);if(z>mx)mx=z;}var xl=[],xr=[];for(var k=0;k<yy.length;k++){xl.push(1);xr.push(1+.28*dd[k]/mx);}return{x:xl.concat(xr.reverse()),y:yy.concat(yy.slice().reverse())};}
+function jit(i,j){var z=Math.sin((i+1)*12.9898+(j+1)*78.233)*43758.5453;return .63+.16*(z-Math.floor(z));}
+function pick(n,m){var a=[],k=Math.min(n,m);if(k===1)return[0];for(var i=0;i<k;i++)a.push(Math.round(i*(n-1)/(k-1)));return a;}
+function qqfun(a){var s=sorted(a),th=data.qq[ni],q1=q(s,.25),q3=q(s,.75),z=.6744897501960817,sl=(q3-q1)/(2*z),it=q1+sl*z;return{s:s,th:th,lx:[th[0],th[th.length-1]],ly:[it+sl*th[0],it+sl*th[th.length-1]]};}
+function ptxt(p){return p<.001?'&lt; .001':'= '+p.toFixed(3).replace(/^0/,'');}
+function f3(v){return v.toFixed(3).replace(/^0/,'').replace('.',',');}
+function redraw(){
+var n=data.nVals[ni];
+for(var j=0;j<4;j++){
+var a=standard(data.samples[j].slice(0,n)),k=kde(a),ids=pick(n,180),px=[],py=[];
+for(var z=0;z<ids.length;z++){var ii=ids[z];px.push(jit(ii,j));py.push(a[ii]);}
+var b=4*j;gd.data[b].x=[.50,1.35];gd.data[b].y=[0,0];gd.data[b+1].x=k.x;gd.data[b+1].y=k.y;gd.data[b+2].x=px;gd.data[b+2].y=py;
+var ss=sorted(a),med=q(ss,.5);gd.data[b+3].x=[1,1.30];gd.data[b+3].y=[med,med];gd.layout['yaxis'+(j===0?'':j+1)].range=range(a,.005,.995);
+var d=qqfun(a),idsq=pick(n,400),xx=[],yy=[];
+for(var u=0;u<idsq.length;u++){xx.push(d.th[idsq[u]]);yy.push(d.s[idsq[u]]);}
+var qb=16+2*j,anum=j+5;gd.data[qb].x=xx;gd.data[qb].y=yy;gd.data[qb+1].x=d.lx;gd.data[qb+1].y=d.ly;gd.layout['xaxis'+anum].range=[d.th[0],d.th[d.th.length-1]];gd.layout['yaxis'+anum].range=range(a,.001,.999);
+var sw=data.sw[j][ni],txt='<b>'+data.names[j]+'</b><br>γ₁ = '+f3(data.skew[j])+'  ·  κ = '+f3(data.kurt[j])+'<br><i>W</i> = '+sw.W.toFixed(3).replace(/^0/,'')+'  ·  <i>p</i> '+ptxt(sw.p);
+gd.layout.annotations[3+j].text=txt;gd.layout.annotations[3+j].bordercolor=sw.p<.05?red:green;
+}
+Plotly.redraw(gd);
+}
+gd.on('plotly_sliderchange',function(e){ni=parseInt(e.step.value);redraw();});redraw();
+}",data=list(nVals=n_vals,samples=samples,names=noms,skew=skew_theo,kurt=kurt_theo,sw=sw_all,qq=qq_theo,init=ni0-1L,colors=list(red=red,green=green)))
+
+p$elementId <- "plotly-normalite-residus-interactif"; p
+```
+:::
+
+## Homoscédasticité (à apprendre) {.smaller .titre-tres-long}
+
+<div style="font-size:1.24em;">
+L’homoscédasticité suppose une dispersion comparable entre les modalités :
+
+$$
+\sigma_1^2\approx\sigma_2^2\approx\cdots\approx\sigma_k^2
+$$
+
+Le test de Levene peut être utilisé, mais l’examen graphique reste, là encore, prioritaire.
+
+**A apprendre.** Une forte hétéroscédasticité peut être traitée avec une méthode adaptée, notamment l’**ANOVA de Welch**, qui pondère les groupes selon la précision de leur moyenne et ajuste les ddl. Elle est à choisir par défaut en présence d'hétéroscédasticité. 
+
+Les moindres carrés pondérés (WLS) constituent une alternative à Welch qui se généralise à l'ANCOVA et la régression. Elle est proposée par JASP et jamovi.
+</div>
+
+## Homoscédasticité et effet « entonnoir »
+
+::: {.graphique-r .plotly-stable style="--plotly-height:300px;"}
+
+```{r}
+#| label: fig-homoscedasticite-interactif
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Comparaison de la dispersion conditionnelle entre les modalités pour différentes formes de distribution.
+#|   <span class="note-figure"><em>Note.</em> Les pointillés orange représentent $m_j\pm2s_j$ : leur largeur reste constante sous homoscédasticité et augmente dans l’effet « entonnoir ». Le test de Levene évalue $H_0:\sigma_A^2=\sigma_B^2=\sigma_C^2$.</span>
+#| fig-width: 9.2
+#| fig-height: 3.25
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+library(plotly); library(htmlwidgets)
+
+n_vals <- c(12,20,30,50,100,200,500,1000,2000,5000); n0 <- 30; max_n <- max(n_vals); ni0 <- which(n_vals==n0)
+m_j <- c(7,13,18); sd_homo <- c(2.5,2.5,2.5); sd_hetero <- c(2.0,2.45,3.3); sd_states <- list(sd_homo,sd_hetero); noms <- c("Normale (𝒩)","Binomiale (ℬ)","Gamma (Γ)","Poisson (𝒫)")
+
+gen_z <- function(type,n){if(type==1)return(rnorm(n));if(type==2)return((rbinom(n,5,.15)-5*.15)/sqrt(5*.15*.85));if(type==3)return((rgamma(n,shape=2,scale=1)-2)/sqrt(2));(rpois(n,2)-2)/sqrt(2)}
+std <- function(x){s <- sd(x);if(!is.finite(s)||s==0)return(x-mean(x));(x-mean(x))/s}
+z <- lapply(1:4,function(d)lapply(1:3,function(j){set.seed(20261000+100*d+j);std(gen_z(d,max_n))}))
+make_y <- function(d,j,n,sds)m_j[j]+sds[j]*z[[d]][[j]][seq_len(n)]
+levene <- function(y,g){dev <- abs(y-ave(y,g,FUN=mean));tab <- summary(aov(dev~g))[[1]];list(F=unname(tab[1,"F value"]),p=unname(tab[1,"Pr(>F)"]),df1=unname(tab[1,"Df"]),df2=unname(tab[2,"Df"]))}
+lev_all <- unname(lapply(sd_states,function(sds)lapply(1:4,function(d)lapply(n_vals,function(n){yy <- unlist(lapply(1:3,function(j)make_y(d,j,n,sds)));gg <- factor(rep(1:3,each=n));levene(yy,gg)}))))
+
+state0 <- 1L; sds0 <- sd_states[[state0]]; y0 <- lapply(1:4,function(d)lapply(1:3,function(j)make_y(d,j,n0,sds0)))
+fmtp <- function(p)if(p<.001)"&lt; .001" else paste0("= ",sub("^0","",sprintf("%.3f",p))); fmtf <- function(x)sub("^0","",sprintf("%.2f",x))
+encart <- function(d,state,i){q <- lev_all[[state]][[d]][[i]];paste0("<b>",noms[d],"</b><br>Levene : <i>F</i>(",q$df1,", ",q$df2,") = ",fmtf(q$F),"  ·  <i>p</i> ",fmtp(q$p))}
+set.seed(20261099); jit <- lapply(1:4,function(d)lapply(1:3,function(j)runif(max_n,-.075,.075)))
+
+p <- plot_ly()
+for(d in 1:4){ax <- if(d==1)"x" else paste0("x",d);ay <- if(d==1)"y" else paste0("y",d);xx <- unlist(lapply(1:3,function(j)j+jit[[d]][[j]][seq_len(n0)]));yy <- unlist(y0[[d]])
+p <- p |>
+  add_trace(x=xx,y=yy,type="scatter",mode="markers",xaxis=ax,yaxis=ay,marker=list(color=blue,size=5.2,opacity=.55,line=list(color="white",width=.45)),customdata=rep(c("A","B","C"),each=n0),hovertemplate="Modalité = %{customdata}<br>VD = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=1:3,y=vapply(y0[[d]],mean,numeric(1)),type="scatter",mode="markers",xaxis=ax,yaxis=ay,marker=list(color=orange,size=9,symbol="diamond",line=list(color="white",width=.8)),hovertemplate="Moyenne = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=1:3,y=m_j+2*sds0,type="scatter",mode="lines",xaxis=ax,yaxis=ay,line=list(color=orange,width=1.5,dash="dash"),hovertemplate="m<sub>j</sub> + 2s<sub>j</sub> = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=1:3,y=m_j-2*sds0,type="scatter",mode="lines",xaxis=ax,yaxis=ay,line=list(color=orange,width=1.5,dash="dash"),fill="tonexty",fillcolor=plotly::toRGB(orange,.055),hovertemplate="m<sub>j</sub> − 2s<sub>j</sub> = %{y:.2f}<extra></extra>",showlegend=FALSE)}
+
+dom <- list(c(.015,.242),c(.265,.492),c(.515,.742),c(.765,.992))
+rng <- function(v){r <- range(v,finite=TRUE);dd <- diff(r);if(!is.finite(dd)||dd==0)dd <- 1;c(r[1]-.08*dd,r[2]+.08*dd)}
+anns <- list(list(x=.5,y=1.075,xref="paper",yref="paper",text="<b>Comparer la dispersion conditionnelle entre les modalités</b>",showarrow=FALSE,font=list(size=11.3,color="#222222")),list(x=.48,y=-.075,xref="paper",yref="paper",text="Modalité",showarrow=FALSE,font=list(size=10,color="#222222")))
+for(d in 1:4)anns <- c(anns,list(list(x=mean(dom[[d]]),y=.91,xref="paper",yref="paper",text=encart(d,state0,ni0),showarrow=FALSE,xanchor="center",yanchor="middle",align="center",bgcolor="rgba(255,255,255,.97)",bordercolor=if(lev_all[[state0]][[d]][[ni0]]$p<.05)red else green,borderwidth=1.2,borderpad=6,font=list(size=8.2,color="#222222"))))
+steps_n <- lapply(seq_along(n_vals),function(i)list(method="skip",label=as.character(n_vals[i]),value=i-1L)); buttons <- list(list(method="skip",label="Variances égales"),list(method="skip",label="Effet « entonnoir »")); yr0 <- rng(c(unlist(y0),m_j-2*sds0,m_j+2*sds0))
+
+p <- p |> layout(width=850,height=292,autosize=FALSE,dragmode=FALSE,hovermode="closest",annotations=anns,
+xaxis=list(domain=dom[[1]],anchor="y",tickmode="array",tickvals=1:3,ticktext=c("A","B","C"),range=c(.65,3.35),fixedrange=TRUE,zeroline=FALSE),yaxis=list(domain=c(.08,.76),anchor="x",title=list(text="VD",standoff=3),range=yr0,fixedrange=TRUE,zeroline=FALSE),
+xaxis2=list(domain=dom[[2]],anchor="y2",tickmode="array",tickvals=1:3,ticktext=c("A","B","C"),range=c(.65,3.35),fixedrange=TRUE,zeroline=FALSE),yaxis2=list(domain=c(.08,.76),anchor="x2",range=yr0,fixedrange=TRUE,zeroline=FALSE),
+xaxis3=list(domain=dom[[3]],anchor="y3",tickmode="array",tickvals=1:3,ticktext=c("A","B","C"),range=c(.65,3.35),fixedrange=TRUE,zeroline=FALSE),yaxis3=list(domain=c(.08,.76),anchor="x3",range=yr0,fixedrange=TRUE,zeroline=FALSE),
+xaxis4=list(domain=dom[[4]],anchor="y4",tickmode="array",tickvals=1:3,ticktext=c("A","B","C"),range=c(.65,3.35),fixedrange=TRUE,zeroline=FALSE),yaxis4=list(domain=c(.08,.76),anchor="x4",range=yr0,fixedrange=TRUE,zeroline=FALSE),
+updatemenus=list(list(type="buttons",direction="right",active=0,showactive=TRUE,x=.015,xanchor="left",y=1.31,yanchor="top",font=list(size=8.8,color="#222222"),bgcolor="white",bordercolor=orange,borderwidth=1,pad=list(r=0,t=0),buttons=buttons)),
+sliders=list(list(active=ni0-1L,x=.57,len=.40,y=1.31,xanchor="left",yanchor="top",ticklen=0,minorticklen=0,tickwidth=0,font=list(size=1,color="rgba(0,0,0,0)"),pad=list(t=0,b=0),currentvalue=list(prefix="Effectif par modalité n = ",font=list(size=9.6,color="#222222"),xanchor="center"),transition=list(duration=0),steps=steps_n)),
+margin=list(l=50,r=10,t=76,b=39)) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+p <- htmlwidgets::onRender(p,"
+function(el,x,data){
+var gd=document.getElementById(el.id),ni=data.initN,state=0,red=data.colors.red,green=data.colors.green;
+function mean(a){var s=0;for(var i=0;i<a.length;i++)s+=a[i];return s/a.length;}
+function range(a){var lo=Infinity,hi=-Infinity;for(var i=0;i<a.length;i++){if(isFinite(a[i])){if(a[i]<lo)lo=a[i];if(a[i]>hi)hi=a[i];}}var d=hi-lo;if(!(d>0))d=1;return[lo-.08*d,hi+.08*d];}
+function pick(n,m){var out=[],k=Math.min(n,m);if(k===1)return[0];for(var i=0;i<k;i++)out.push(Math.round(i*(n-1)/(k-1)));return out;}
+function ptxt(p){return p<.001?'&lt; .001':'= '+p.toFixed(3).replace(/^0/,'');}
+function ftxt(v){return v.toFixed(2).replace(/^0/,'');}
+function redraw(){var n=data.nVals[ni],sds=state===0?data.sdHomo:data.sdHetero;
+for(var d=0;d<4;d++){var px=[],py=[],cd=[],means=[],allY=[];
+for(var j=0;j<3;j++){var zz=data.z[d][j].slice(0,n),y=zz.map(function(v){return data.means[j]+sds[j]*v;}),ids=pick(n,180);means.push(mean(y));for(var r=0;r<y.length;r++)allY.push(y[r]);for(var k=0;k<ids.length;k++){var ii=ids[k];px.push(j+1+data.jit[d][j][ii]);py.push(y[ii]);cd.push(['A','B','C'][j]);}}
+var upper=[],lower=[];for(var j=0;j<3;j++){upper.push(data.means[j]+2*sds[j]);lower.push(data.means[j]-2*sds[j]);allY.push(upper[j]);allY.push(lower[j]);}
+var b=4*d;gd.data[b].x=px;gd.data[b].y=py;gd.data[b].customdata=cd;gd.data[b+1].x=[1,2,3];gd.data[b+1].y=means;gd.data[b+2].x=[1,2,3];gd.data[b+2].y=upper;gd.data[b+3].x=[1,2,3];gd.data[b+3].y=lower;gd.layout['yaxis'+(d===0?'':d+1)].range=range(allY);
+var lv=data.lev[state][d][ni],txt='<b>'+data.names[d]+'</b><br>Levene : <i>F</i>('+lv.df1+', '+lv.df2+') = '+ftxt(lv.F)+'  ·  <i>p</i> '+ptxt(lv.p);gd.layout.annotations[2+d].text=txt;gd.layout.annotations[2+d].bordercolor=lv.p<.05?red:green;}
+Plotly.redraw(gd);}
+gd.on('plotly_sliderchange',function(e){ni=parseInt(e.step.value,10);redraw();});
+gd.on('plotly_buttonclicked',function(e){state=e.button.label.indexOf('entonnoir')>=0?1:0;redraw();});
+redraw();
+}",data=list(nVals=n_vals,means=m_j,sdHomo=sd_homo,sdHetero=sd_hetero,z=z,jit=jit,names=noms,lev=lev_all,initN=ni0-1L,colors=list(red=red,green=green)))
+
+p$elementId <- "plotly-homoscedasticite-interactif"; p
+```
+:::
+
+## Indépendance des résidus (à apprendre) {.smaller .titre-tres-long}
+
+<div style="font-size:1.27em;">
+L’indépendance dépend d’abord du **plan expérimental**.
+
+Dans une ANOVA indépendante, chaque participant contribue à une seule modalité. Les observations de participants différents ne doivent pas s’influencer systématiquement (i.e., pas de répétition de la mesure de VD en intra-sujet, pas d'analyse de paires de participants comme des couples, jumeaux, pas de mesures longitudinales, etc.).
+
+Une dépendance ignorée fausse l’estimation de la composante aléatoire et donc de l'incertitude. Lorsque plusieurs observations proviennent d’un même *cluster* de mesures répétées, il faut utiliser un modèle qui représente cette **structure d'effets aléatoires**, par exemple une **ANOVA à mesures répétées** ou un modèle mixte (aussi appelé hiérarchique ou multiniveaux).
+</div>
+
+## Références utiles
+
+→ Cohen, J. (1988). *Statistical Power Analysis for the Behavioral Sciences* (2nd ed.). Routledge.
+
+→ Olejnik, S., & Algina, J. (2003). Generalized eta and omega squared statistics: Measures of effect size for some common research designs. *Psychological Methods, 8*(4), 434–447.

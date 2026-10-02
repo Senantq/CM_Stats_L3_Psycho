@@ -1,0 +1,2701 @@
+---
+title: "CM n°1 : Introduction"
+subtitle: "Variables, inférence sur une mesure et sur la population"
+
+author:
+  - name: "Quentin Sénant"
+    degrees: 
+      - "Neuropsychologue"
+      - "Doctorant en modélisation pour les Sciences Cognitives"
+    email: "quentin.senant@univ-grenoble-alpes.fr"
+    affiliations:
+      - name: "Université Grenoble Alpes"
+
+lang: fr-FR
+date-format: "D MMMM YYYY"
+description: "Cours magistral de statistique ; Licence 3 Psychologie"
+---
+
+## Plan du CM {.sommaire .sommaire-cm1}
+
+```{r}
+#| label: setup
+#| include: false
+
+suppressPackageStartupMessages({
+  library(ggplot2); library(patchwork);library(dplyr); library(tidyr); library(grid); library(ragg); library(ggpattern);library(plotly); library(htmlwidgets)
+})
+
+couleurs <- list(fond = "#3f4d53", bleu = "#5b5be7", bleu_clair = "#d9d9ff", turquoise = "#159c91", rouge = "#d9534f",
+  
+  dark <- "#000000", gris <- "#36454A", orange <- "#E69F55", blue <- "#6666E8",
+  red <- "#D95F5F", green  <- "#2A9D8F", grey <- "#A7B0B3")
+
+theme_set(
+  theme_minimal(base_family = "CMU Serif") +  # police LaTeX
+    theme(
+      # Titre du plot en gras, centré, et taille 18
+      plot.title = element_text(hjust = 0.5, family = "CMU Serif", size = 18, face = "bold"),
+      # Titres des axes en gras et taille 14
+      axis.title.x = element_text(size = 14, family = "CMU Serif", face = "bold", colour=dark),
+      axis.title.y = element_text(size = 14, family = "CMU Serif", face = "bold", colour=dark),
+      # Texte des axes, taille 14
+      axis.text.x = element_text(size = 14, family = "CMU Serif"),
+      axis.text.y = element_text(size = 14, family = "CMU Serif"),
+      # Légende : position supra, taille 12
+      legend.position = "top",
+      legend.title = element_text(size = 14),
+      legend.text = element_text(size = 12),
+      # Grilles horizontale seulement pour les axes
+      panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),
+      panel.grid.minor.y = element_line(color = "gray", linewidth = 0.5),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank(),
+      # Marges (10,10,10,10) du plot
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10),
+      # Texte des facettes
+      strip.text = element_text(size = 14, family = "CMU Serif")))
+set.seed(20260901)
+
+summarise_ci <- function(data, groups, outcome, level = .95) {
+  alpha <- 1 - level
+  data |>
+    group_by(across(all_of(groups))) |>
+    summarise(n = sum(!is.na(.data[[outcome]])),
+      mean = mean(.data[[outcome]], na.rm = TRUE), sd = sd(.data[[outcome]], na.rm = TRUE), se = sd / sqrt(n),
+      lower = mean - qt(1 - alpha / 2, df = n - 1) * se, upper = mean + qt(1 - alpha / 2, df = n - 1) * se,
+      .groups = "drop")}
+```
+
+::: {.sommaire-grille}
+::: {.sommaire-colonne .sommaire-gauche}
+[1.]{.sommaire-numero} [Variables]{.sommaire-texte}
+
+[2.]{.sommaire-numero} [Quelques statistiques descriptives]{.sommaire-texte}
+
+[3.]{.sommaire-numero} [La démarche inférentielle]{.sommaire-texte}
+:::
+
+::: {.sommaire-colonne .sommaire-droite}
+[4.]{.sommaire-numero} [Du *z*-score au *t*-test]{.sommaire-texte}
+
+[5.]{.sommaire-numero} [Tests d’hypothèse nulle, *p*-value, α, β et IC]{.sommaire-texte}
+:::
+:::
+
+## Variables indépendantes et dépendantes
+
+Les **variables indépendantes** (VI) sont celles dont on pose l’hypothèse qu’elles ont un effet sur la **variable dépendante** (VD). La valeur de la VD est donc censée changer selon la valeur ou modalité prise par la VI.
+
+::: fragment
+Les VI peuvent être **manipulées** au cours d’une expérience ou **invoquées** et prennent alors leur valeur indépendamment de l’expérimentateur.
+
+Les modalités d’une VI catégorielle peuvent être **indépendantes** (e.g., intersujets) ou **appariées** (e.g., intrasujets) en cas de mesures répétées.
+:::
+
+::: fragment
+Graphiquement, **la VD se place sur l’axe des ordonnées (y)**, donc l'axe vertical. Lorsqu’il n’y a qu’une seule **VI, elle se place sur l’axe des abscisses (x)**, donc l'axe horizontal.
+:::
+
+## Exemple d'étude intrasujet {.smaller}
+
+On souhaite connaître l’effet d’une prise en charge de type TCC relativement à une thérapie de psychologie positive sur la symptomatologie dépressive, évaluée par l'inventaire de dépression de Beck (BDI, allant de 0 à 63).
+
+Pour des raisons éthiques, tous les patients suivent les deux thérapies dans un ordre contrebalancé (i.e., la moitié des sujets commence par la TCC puis reçoit ensuite une prise en charge par psy. positive, l'inverse pour l'autre moitié des sujets). Les mesures sont donc répétées sur les participants : la VI Thérapie est donc **manipulée** et **appariée** car les mesures sont répétées en intrasujet.
+
+La VI est manipulée par l’expérimentateur-clinicien. La VD est le **score de dépression**.
+
+## Représentation graphique intrasujet
+
+::: graphique-r
+```{r}
+#| label: fig-therapie
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Scores de dépression selon la thérapie. (Données bidon !)
+#|   <span class="note-figure"><em>Note.</em> Violons : densité des distributions, calculés via une *kernel density estimation*. Lignes rouges (spaghettis) : effets intrasujets entre les mesures appariées d’un même participant. Ligne noire : effet intrasujet moyen reliant la moyenne des deux modalités entourée de son IC95% (± 1.96 se).</span>
+#| fig-width: 9.4
+#| fig-height: 3.4
+#| fig-dpi: 350
+#| fig-align: center
+#| out-width: "100%"
+
+n_t <- 45
+t_data <- tibble(participant = seq_len(n_t), effet_sujet = rnorm(n_t, 0, 4)) |>
+  tidyr::crossing(group = factor(c("Psy. Positive", "TCC"), levels = c("Psy. Positive", "TCC"))) |>
+  mutate(score = effet_sujet +
+      if_else(group == "Psy. Positive", 40, 15) +
+      rnorm(n(), 0, 3))
+
+t_summary <- summarise_ci(t_data, groups = "group", outcome = "score")
+t_cols <- c("Psy. Positive" = blue, "TCC" = orange)
+t_se_band <- t_summary |>
+  mutate(ymin_se = mean - 1.96*se, ymax_se = mean + 1.96*se)
+
+ggplot(t_data, aes(group, score, fill = group, colour = group)) +
+  geom_violin(trim = FALSE, width = .72, alpha = .16, linewidth = .7) +
+  geom_boxplot(width = .18, outlier.shape = NA, alpha = .28, linewidth = .65) +
+  geom_jitter(width = .08, height = 0, alpha = .48, size = 1.6) +
+  geom_ribbon(data = t_se_band, aes(x = group, ymin = ymin_se, ymax = ymax_se, group = 1), inherit.aes = FALSE, fill = "#000000", alpha = .25) +
+  #spaghettis intraS
+  geom_line(aes(group = participant), colour=red, alpha=.22, linewidth=.4)+
+  geom_text(data = t_se_band |> summarise(x = 1.5, y = mean(mean) + 4.5), aes(x = x+0.1, y = y+3.25, label = "\u00B1 1.96 se"), inherit.aes = FALSE, colour = "#000000", size = 6) +
+  geom_line(data = t_summary, aes(group, mean, group = 1), inherit.aes = FALSE, colour = "#000000", linewidth = .9) +
+  geom_errorbar(data = t_summary, aes(group, ymin = lower, ymax = upper, colour = group), inherit.aes = FALSE, width = .08, linewidth = .8) +
+  geom_point(data = t_summary, aes(group, mean, colour = group), inherit.aes = FALSE, size = 3.2) +
+  scale_fill_manual(values = t_cols) + scale_colour_manual(values = t_cols) +
+  guides(fill = "none", colour = "none") +
+  labs(x = "Type de Thérapie", y = "Score de dépression BDI")
+```
+:::
+
+## Exemple n°2 {.smaller}
+
+NHANES (*National Health and Nutrition Examination Survey*) est une enquête américaine qui associe entretiens et examens de santé standardisés. J'utilise ici les mesures de pression artérielle d'adultes de 20 à 39 ans issus des données NHANES 2009–2012.
+
+On souhaite déterminer si la **pression artérielle systolique moyenne** diffère selon le sexe.
+
+La VI Sexe comporte deux modalités : femme et homme. C'est une VI **invoquée**.
+
+La VD est la **pression artérielle systolique moyenne**, exprimée en mmHg.
+
+## Représentation graphique intersujet
+
+::: graphique-r
+```{r}
+#| label: fig-sexe
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Pression artérielle systolique moyenne selon le sexe chez des adultes de 20 à 39 ans. Données NHANES 2009–2012.
+#|   <span class="note-figure"><em>Note.</em> Les violons représentent la densité des distributions. L'effet intersujets moyen est représenté par une ligne noire reliant la moyenne des deux modalités entourée de son IC95% (approx. ± 1.96 se). Chaque participant appartient à une seule modalité de la VI.</span>
+#| fig-width: 9.4
+#| fig-height: 3.5
+#| fig-dpi: 350
+#| fig-align: center
+#| out-width: "100%"
+
+data("NHANES", package = "NHANES")
+set.seed(1234)
+
+t_data <- NHANES |>
+  filter(Age >= 20, Age <= 39, !is.na(Gender), !is.na(BPSysAve)) |>
+  transmute(participant = ID, group = factor(Gender, levels = c("male", "female"), labels = c("Homme", "Femme")), score = BPSysAve) |>
+  group_by(group) |> slice_sample(n = 150) |> ungroup()
+
+t_summary <- summarise_ci(t_data, groups = "group", outcome = "score")
+t_cols <- c("Homme" = blue, "Femme" = orange)
+t_se_band <- t_summary |> mutate(ymin_se = mean - 1.96*se, ymax_se = mean + 1.96*se)
+
+ggplot(t_data, aes(group, score, fill = group, colour = group)) +
+  geom_violin(trim = FALSE, width = .72, alpha = .16, linewidth = .7) +
+  geom_boxplot(width = .18, outlier.shape = NA, alpha = .28, linewidth = .65) +
+  geom_jitter(width = .08, height = 0, alpha = .32, size = 1.25) +
+  geom_ribbon(data = t_se_band, aes(x = group, ymin = ymin_se, ymax = ymax_se, group = 1), inherit.aes = FALSE, fill = dark, alpha = .25) +
+  geom_text(data = t_se_band |> summarise(x = 1.5, y = max(ymax_se) + 3), aes(x = x, y = y, label = "\u00B1 1.96 se"), inherit.aes = FALSE, colour = "#000000", size = 5) +
+  geom_line(data = t_summary, aes(group, mean, group = 1), inherit.aes = FALSE, colour = "#000000", linewidth = .9) +
+  geom_errorbar(data = t_summary, aes(group, ymin = lower, ymax = upper, colour = group), inherit.aes = FALSE, width = .08, linewidth = .8) +
+  geom_point(data = t_summary, aes(group, mean, colour = group), inherit.aes = FALSE, size = 3.2) +
+  scale_fill_manual(values = t_cols) + scale_colour_manual(values = t_cols) +
+  guides(fill = "none", colour = "none") +
+  labs(x = "Sexe", y = "Pression artérielle\nsystolique moyenne (mmHg)")
+```
+:::
+
+## Variables et N \< O \< I \< R {.smaller}
+
+Les variables se distinguent aussi selon la structure de la mesure. Cette distinction aide à choisir les tests inférentiels et à comprendre la logique des tests non paramétriques.
+
+| Niveau | Définition | Exemple |
+|:----:|:----:|:----:|
+| **Nominal** | Modalités nommables, sans ordre | Sexe biologique |
+| **Ordinal** | Modalités ordonnables | Échelle de Likert, réponses graduées |
+| **Intervalle** | Écarts interprétables, sans zéro naturel | Différence de temps de réaction |
+| **Rapport** | Écarts interprétables et zéro naturel | Temps de réaction, âge, taille, décomptes, proportions |
+
+## Pourquoi N \< O \< I \< R ? {.smaller}
+
+En allant de **N vers R**, chaque niveau suivant conserve les opérations autorisées par le niveau précédent.
+
+::: fragment
+→ **Nominal** : dénombrer les observations dans chaque modalité.
+
+→ **Ordinal** : dénombrer et comparer les rangs.
+:::
+
+::: fragment
+→ **Intervalle** : dénombrer, comparer, additionner et soustraire.
+
+→ **Rapport** : dénombrer, comparer, additionner, soustraire, multiplier et diviser.
+:::
+
+## L'arbre des tests paramétriques et non paramétriques {.smaller .titre-tres-long}
+
+::: {.graphique-r}
+```{r}
+#| label: arbre-tests
+#| fig-width: 10.8
+#| fig-height: 4.72
+#| fig-dpi: 300
+#| fig-align: center
+#| out-width: "98%"
+#| echo: false
+
+library(ggplot2)
+library(dplyr)
+
+L1 <- "#FF6A00"; L2 <- "#3D95E8"; L3 <- "#00B050"; M1 <- "#FFC000"; gris_ligne <- "#A7A7A7"
+
+elbow <- function(x1,y1,x2,y2,xm=(x1+x2)/2) data.frame(x=c(x1,xm,xm),y=c(y1,y1,y2),xend=c(xm,xm,x2),yend=c(y1,y2,y2))
+
+diamonds <- data.frame(
+  id=c("vd","nvar","typevi","nvi_cont","type_cont","info","nmodal","ind2","norm_ind","norm_pair","ind_multi","nvi_cat","norm_aov","norm_rm"),
+  label=c("Type\nVD","Nb de\nvar.","Type\nVI","Nb de\nVI","Type\nVI","Information\ncherchée","Nb de\nmodalités","Indépend.","Normalité","Normalité","Indépend.","Nb de\nVI","Normalité","Normalité"),
+  x=c(1.15,3.25,3.25,5.65,7.95,10.55,5.65,7.95,10.65,10.65,7.95,10.55,12.85,10.55),
+  y=c(4.75,7.05,3.75,5.35,6.05,7.00,2.20,3.35,4.15,2.95,1.10,1.55,1.95,.35),
+  w=c(1.35,1.45,1.45,1.45,1.45,1.75,1.55,1.40,1.50,1.50,1.40,1.35,1.50,1.50),
+  h=c(.78,.82,.82,.82,.82,.88,.82,.78,.78,.78,.78,.78,.78,.78)
+)
+
+diamond_poly <- bind_rows(lapply(seq_len(nrow(diamonds)), function(i){
+  d <- diamonds[i,]
+  data.frame(id=d$id,x=c(d$x,d$x+d$w/2,d$x,d$x-d$w/2),y=c(d$y+d$h/2,d$y,d$y-d$h/2,d$y))
+}))
+
+boxes <- data.frame(
+  label=c("χ² d’ajustement","χ² d’indépendance","r de Pearson","Régression simple","ρ de Spearman","Régression multiple","t-test indépendant","U de Mann–Whitney","t-test apparié","Wilcoxon","ANOVA","Kruskal–Wallis","ANOVA factorielle","ANOVA mesures répétées","Friedman"),
+  x=c(5.70,5.70,14.25,14.25,10.90,9.05,14.30,14.30,14.30,14.30,15.60,15.60,13.35,14.35,14.35),
+  y=c(7.55,6.65,7.55,6.65,5.35,4.65,4.55,3.95,3.25,2.65,2.25,1.65,1.05,.55,0),
+  w=c(2.15,2.30,2.10,2.35,2.20,2.40,2.45,2.65,2.45,2.20,2.20,2.55,2.75,3.10,2.40),
+  h=.44,
+  fill=c(L2,L2,L1,M1,M1,M1,L2,M1,L2,M1,L3,M1,L3,L3,M1),
+  border=c("#2465A3","#2465A3","#B54B00","#B54B00","#B78A00","#B78A00","#2465A3","#B78A00","#2465A3","#B78A00","#007A38","#B78A00","#007A38","#007A38","#B78A00"),
+  textcol=c("white","white","black","black","black","black","white","black","white","black","white","black","white","white","black"),
+  textsize=c(3.05,3.05,3.15,2.90,3.05,2.85,2.85,2.75,2.85,3.00,3.10,2.95,2.80,2.62,2.95)
+)
+
+edges <- bind_rows(
+  elbow(1.15,4.75,3.25,7.05,2.10), elbow(1.15,4.75,3.25,3.75,2.10),
+  elbow(3.25,7.05,5.70,7.55,4.25), elbow(3.25,7.05,5.70,6.65,4.25),
+  elbow(3.25,3.75,5.65,5.35,4.35), elbow(3.25,3.75,5.65,2.20,4.35),
+  elbow(5.65,5.35,7.95,6.05,6.75), elbow(5.65,5.35,9.05,4.65,6.75),
+  elbow(7.95,6.05,10.55,7.00,9.15), elbow(7.95,6.05,10.90,5.35,9.15),
+  elbow(10.55,7.00,14.25,7.55,12.25), elbow(10.55,7.00,14.25,6.65,12.25),
+  elbow(5.65,2.20,7.95,3.35,6.75), elbow(5.65,2.20,7.95,1.10,6.75),
+  elbow(7.95,3.35,10.65,4.15,9.15), elbow(7.95,3.35,10.65,2.95,9.15),
+  elbow(10.65,4.15,14.30,4.55,12.40), elbow(10.65,4.15,14.30,3.95,12.40),
+  elbow(10.65,2.95,14.30,3.25,12.40), elbow(10.65,2.95,14.30,2.65,12.40),
+  elbow(7.95,1.10,10.55,1.55,9.15), elbow(7.95,1.10,10.55,.35,9.15),
+  elbow(10.55,1.55,12.85,1.95,11.65), elbow(10.55,1.55,13.35,1.05,11.65),
+  elbow(12.85,1.95,15.60,2.25,14.05), elbow(12.85,1.95,15.60,1.65,14.05),
+  elbow(10.55,.35,14.35,.55,12.45), elbow(10.55,.35,14.35,0,12.45)
+)
+
+branch_labels <- data.frame(
+  label=c("nominale\n(ordinale)","intervalle+\n(ordinale)","1","2","intervalle+\n(ordinale)","nominale\n(ordinale)","1","> 1","intervalle+","ordinale","force","forme","2","> 2","oui","non","oui","non","oui","non","oui","non","1","> 1","oui","non","oui","non"),
+  x=c(1.85,1.88,4.20,4.20,4.25,4.20,6.72,6.72,9.08,9.08,12.20,12.20,6.72,6.72,9.12,9.12,12.35,12.35,12.35,12.35,9.12,9.12,11.62,11.72,14.00,14.00,12.42,12.42),
+  y=c(6.18,4.25,7.55,6.70,4.72,2.90,5.75,4.67,6.60,5.42,7.48,6.70,3.02,1.52,3.95,3.02,4.48,3.92,3.25,2.68,1.47,.55,1.83,1.10,2.25,1.65,.62,-.02)
+)
+
+p <- ggplot() +
+  geom_segment(data=edges,aes(x=x,y=y,xend=xend,yend=yend),colour=gris_ligne,linewidth=.45,lineend="round") +
+  geom_polygon(data=diamond_poly,aes(x=x,y=y,group=id),fill="white",colour=gris_ligne,linewidth=.65) +
+  geom_text(data=diamonds,aes(x=x,y=y,label=label),family="CMU Serif",size=3.10,lineheight=.86) +
+  geom_label(data=branch_labels,aes(x=x,y=y,label=label),family="CMU Serif",size=2.55,lineheight=.84,fill="white",colour="#303030",label.size=0,label.padding=grid::unit(.025,"lines")) +
+  coord_cartesian(xlim=c(.20,17.10),ylim=c(-.28,8.05),clip="off",expand=FALSE) +
+  theme_void() +
+  theme(plot.margin=margin(0,3,0,3),plot.background=element_rect(fill="white",colour=NA))
+
+for(i in seq_len(nrow(boxes))){
+  b <- boxes[i,]
+  p <- p +
+    annotation_custom(grid::roundrectGrob(r=grid::unit(.08,"snpc"),gp=grid::gpar(fill=b$fill,col=b$border,lwd=1.25)),xmin=b$x-b$w/2,xmax=b$x+b$w/2,ymin=b$y-b$h/2,ymax=b$y+b$h/2) +
+    annotate("text",x=b$x,y=b$y,label=b$label,family="CMU Serif",size=b$textsize,colour=b$textcol)
+}
+
+legende <- data.frame(label=c("L1","L2","L3","M1"),y=c(1.65,1.20,.75,.30),fill=c(L1,L2,L3,M1),textcol=c("black","white","white","black"))
+
+for(i in seq_len(nrow(legende))){
+  l <- legende[i,]
+  p <- p +
+    annotation_custom(grid::rectGrob(gp=grid::gpar(fill=l$fill,col="#333333",lwd=1)),xmin=.55,xmax=1.95,ymin=l$y-.17,ymax=l$y+.17) +
+    annotate("text",x=1.25,y=l$y,label=l$label,family="CMU Serif",size=3.20,colour=l$textcol)
+}
+
+p
+```
+:::
+
+## Les tests non paramétriques (annexe) {.smaller .titre-tres-long}
+
+Les tests non paramétriques exploitent la règle **N < O < I < R** : plusieurs d'entre eux utilisent seulement l'**ordre des observations plutôt que leurs valeurs brutes**. Ils conviennent donc aux VD ordinales et **aux distributions continues non normales** (e.g., les décomptes).
+
+| Plan | Test paramétrique | Alternative non paramétrique |
+|:--|:--:|:--:|
+| 2 groupes indépendants | *t* de Student indépendant | **Mann-Whitney-Wilcoxon** |
+| 2 mesures appariées | *t* de Student apparié | **Wilcoxon signed-rank** |
+| > 2 groupes indépendants | ANOVA intersujets | **Kruskal-Wallis** |
+| > 2 mesures répétées | ANOVA intrasujets | **Friedman** |
+
+## Tests fondés sur les rangs et Welch tests (annexe) {.smaller .titre-long}
+
+<div style="font-size:0.92em;">
+→ **Tests fondés sur les rangs** : le test statistique est construit directement à partir des rangs des observations ou des différences.
+
+- **Mann-Whitney-Wilcoxon** : classe ensemble les observations de deux groupes indépendants.
+- **Wilcoxon signed-rank** : classe les différences absolues entre deux mesures appariées, puis tient compte de leur signe.
+- **Kruskal-Wallis** : classe ensemble les observations de plusieurs groupes indépendants.
+- **Friedman** : classe les conditions **à l'intérieur de chaque sujet** dans un plan à mesures répétées.
+
+Ces tests sont à utiliser **en cas de violation de la condition d'application de normalité**.
+
+::: fragment
+→ **Méthodes paramétriques pour hétéroscédasticité** : elles conservent les valeurs quantitatives originales mais modifient leur pondération lors de l'ajustement des paramètres du modèle. Le **Welch $t$-test** et l'**ANOVA de Welch** autorisent des variances différentes entre groupes. Ces tests se basent sur les **moindres carrés pondérés (WLS)** qui donnent davantage de poids aux observations estimées avec la meilleure précision. Ces méthodes restent paramétriques parce-qu'elles ne transforment pas les données en rangs.
+
+Ces tests et les WLS sont à utiliser en cas de violation de la condition d'application de variance homogène = constante = "d'homoscédasticité" des résidus.
+:::
+</div>
+
+## Principe de fidélité d'un test psychologique {.titre-long}
+
+En psychologie, nous sommes ammenés à utiliser beaucoup de variables différentes, que ce soit pour caractériser un patient au travers d'un questionnaire avant une thérapie, pour aider au diagnostic d'une démence, etc. Du fait de la quantité de questionnaires proposés, certains sont évidemment meilleurs que d'autres et l'on peut attendre d'un bon test ou d'un bon questionnaire qu'il soit fiable et valide. 
+
+La **fiabilité** (fidélité, ou *reliability*) décrit la reproductibilité ou la précision d’un score. **En situation de test-retest elle augmente lorsque les différences de score mesuré sur un même individu sont faibles**. On souhaite donc que les différences mesurées représentent plus des variations dans le fonctionnement individuel que celles d'un mauvais test.
+
+## Mesures de la fidélité d'un test psychologique {.smaller .titre-tres-long}
+
+<div style="font-size:0.88em;">
+
+ La fidélité dépend du résultat que l’on souhaite reproduire :
+
+| Résultat étudié | Indice adapté |
+|:---:|:---:|
+| Cohérence des items d'un questionnaire | $\alpha$ de Cronbach ou **$\omega$ de McDonald** |
+| Stabilité d’un score continu | ICC (*intra-class correlation coefficient* ; test–retest ou inter-évaluateur) |
+| Stabilité d’une catégorie | $\kappa$ de Cohen |
+
+L'$\alpha$ de Cronbach suppose que les items contribuent à peu près de manière égale au construit que souhaite mesurer le test psychologique. Or, puisqu'il y a souvent de nombreux items à un même questionnaire, on peut s'attendre, encore une fois, à ce que certains soient meilleurs que d'autres pour représenter le construit psychologique que l'on veut mesurer. L'**$\omega$ de McDonald** est donc préférable dès lors que l'on dispose d'un modèle factoriel qui décrit les dimensions du questionnaire (e.g., extraversion, agréabilité, stabilité émotionnelle, etc. au Big-5) : ici les items peuvent contribuer différemment à la mesure du construit (ici la personnalité).
+
+Selon Senja Stirn, dans tous les cas, **un coefficient d'environ .90 est souvent considéré comme le minimum souhaitable en clinique**. Le Big-5 respecte ce prérequis, d'autres questionnaires comme le MBTI, descendent à $\sim 0.6$ pour certaines dimensions. 
+
+Ces coefficients sont accessibles sous JASP par défaut, pour jamovi il faudra installer seolmatrix pour l'ICC, et meddecide pour le $\kappa$.
+
+</div>
+
+## Principes de validités d'un test psychologique {.smaller .titre-long}
+
+La validité peut, elle, concerner plusieurs aspects...
+
+<div style="font-size:0.89em;">
+::: fragment
+La **validité diagnostique** pose la question de savoir si un test distingue correctement les cas pathologiques des cas non pathologiques. Elle est mesurée à l'aide de différents indices : la sensibilité, la spécificité, l'AUC d'une ROC, etc. Tous ces indices sont compris entre 0 et 100% et doivent idéalement tendre vers 100%. Pour construire la courbe ROC d'un test diagnostique on utilise des modèles comme la régression logistique.
+:::
+
+::: fragment
+La **validité de construit** concerne l’adéquation entre le score obtenu et le construit que l’on souhaite réellement mesurer. Une mesure peut être très reproductible tout en mesurant autre chose que le construit visé. Pour l'évaluer, on peut notamment examiner la **structure factorielle du test** : on vérifie si les items se regroupent selon un nombre limité de dimensions cohérentes et interprétables, conformément au modèle théorique. C’est par exemple le cas du modèle des Big Five, qui distingue cinq grandes dimensions de la personnalité.
+:::
+
+::: fragment
+La **validité prédictive** d'un test psychologique pose la question de savoir si le test prédit effectivement un comportement ou un résultat futur (e.g., un patient obtenant un score élevé à l’échelle de dépression de Beck présente-t-il un risque plus important de passage à l’acte ?). Pour l’évaluer, on examine l’association entre le score au test et la survenue ultérieure du comportement considéré.
+:::
+
+::: fragment
+La **validité convergente** peut aussi être examinée : on cherche alors à vérifier que les résultats du questionnaire **sont corrélés** à d'autres mesures de construits identiques ou proches.
+:::
+
+</div>
+
+## Quelques statistiques descriptives {.smaller}
+
+Les indices descriptifs portent sur **l’échantillon** de l’étude. Ils se répartissent en deux familles :
+
+→ **indices de position** ou de **tendance centrale** : mode, médiane et moyenne ;
+
+→ **indices de dispersion** ou **d’erreur** : fréquence hors mode, *mean absolute error* (*mean absolute deviation* ; notée MAE ou MAD) et écart-type (i.e., *root mean squared error*).
+
+## Médiane et MAE (annexe) {.smaller}
+La **médiane** partage les données en deux parts égales : 50 % des observations se trouvent de chaque côté. Elle peut être utilisée dès les variables ordinales et est très **robuste aux observations extrêmes**.
+
+La **MAE** est la moyenne des écarts absolus à un centre $a$ : $$\mathcal{L}_{\operatorname{MAE}(a)}=\frac{1}{n}\sum_{i=1}^{n}|y_i-a|$$
+
+La médiane est précisément le centre $a$ qui minimise cette fonction de perte. Sous le capot des logiciels stats, la médiane est estimée à partir de la *loss function* de la MAE par méthode du **maximum de vraisemblance** (*maximum likelihood*) : on parle de définition *m-estimateur* de la médiane.
+
+*Nota* : **Estimer les paramètres d’un modèle** consiste à choisir les valeurs qui rendent ses prédictions aussi proches que possible des observations, selon une **fonction de perte** (une erreur de modélisation). Pour certains modèles simples, comme l’ANOVA, ces valeurs peuvent être obtenues directement par une **solution analytique**, c’est-à-dire calculés en *one-shot* à l’aide d’une formule. Pour des modèles plus complexes, on utilise souvent une **optimisation numérique** : un algorithme appelé optimiseur modifie progressivement les paramètres afin de réduire la perte.
+
+## La médiane est le minimum de la perte MAE {.smaller .titre-tres-long}
+
+::: {.graphique-r .plotly-stable}
+```{r}
+#| label: fig-mediane-mae-interactive
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   MAE en fonction du centre envisagé.
+#|   <span class="note-figure"><em>Note.</em> Le demi-violon représente la densité des observations. Le curseur permet de faire varier le centre envisagé ; les segments rouges représentent alors les erreurs absolues entre ce centre et chaque observation. Le point bleu indique la MAE correspondante dans le <em>subplot</em> droit. La médiane minimise cette fonction de perte.</span>
+#| fig-width: 9.4
+#| fig-height: 3.95
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+vd <- c(2,3.2,4.1,4.7,5.2,5.8,6.4,7.1,7.8,8.7,9.4,11,12.5,16); jitter_x <- c(.10,.24,.14,.30,.18,.08,.27,.16,.22,.12,.28,.19,.07,.25)
+observations <- data.frame(x=1-jitter_x, VD=vd); mediane_vd <- median(vd)
+densite <- density(vd, from=min(vd)-.8, to=max(vd)+.8, n=512, adjust=.9); largeur <- .36*densite$y/max(densite$y)
+demi_violon <- data.frame(x=c(rep(1.03, length(densite$x)), rev(1.03+largeur)), VD=c(densite$x, rev(densite$x)))
+centres <- seq(min(vd)-2, max(vd)+2, length.out=700); mae <- vapply(centres,\(a) mean(abs(vd-a)), numeric(1)); plage_mae <- range(mae); mae_mediane <- mean(abs(vd-mediane_vd))
+perte_mae <- data.frame(centre=centres, perte=mae); centres_slider <- sort(unique(c(seq(min(centres), max(centres), by=.25), mediane_vd)))
+segment_x <- as.vector(rbind(observations$x, observations$x, rep(NA_real_, nrow(observations))))
+segments_y <- function(a) as.vector(rbind(observations$VD, rep(a, nrow(observations)), rep(NA_real_, nrow(observations))))
+format_fr <- function(x) sub("\\.",",", sprintf("%.2f", x))
+annotations_etat <- function(a) { perte <- mean(abs(vd-a)); list(
+  list(x=.5, y=.99, xref="x domain", yref="paper", text="<b>Erreurs autour du centre</b>", showarrow=FALSE, yanchor="top", font=list(size=15)),
+  list(x=.5, y=.99, xref="x2 domain", yref="paper", text="<b>MAE en fonction du centre envisagé</b>", showarrow=FALSE, yanchor="top", font=list(size=15)),
+  list(x=1.37, y=min(a+.65, max(centres)-.35), xref="x", yref="y", text=paste0("<b>Centre = ", format_fr(a),"</b>"), showarrow=FALSE, xanchor="center", font=list(color=orange, size=12), bgcolor="rgba(255,255,255,.94)", bordercolor=orange, borderwidth=1, borderpad=5),
+  list(x=a, y=perte, xref="x2", yref="y2", text=paste0("<b>MAE = ", format_fr(perte),"</b>"), showarrow=FALSE, xanchor=ifelse(a>median(centres),"right","left"), xshift=ifelse(a>median(centres),-8,8), yanchor="bottom", yshift=8, font=list(color=blue, size=12), bgcolor="rgba(255,255,255,.94)", bordercolor=blue, borderwidth=1, borderpad=6)) }
+formes_etat <- function(a) list(
+  list(type="line", xref="x", yref="y", x0=.56, x1=1.42, y0=a, y1=a, layer="above", line=list(color=orange, width=5)),
+  list(type="line", xref="x2", yref="y2", x0=a, x1=a, y0=plage_mae[1], y1=plage_mae[2], layer="below", line=list(color=orange, width=2, dash="dash")))
+etapes <- lapply(centres_slider,\(a) { perte <- mean(abs(vd-a)); list(method="update", label=format_fr(a), args=list(list(x=list(segment_x, a), y=list(segments_y(a), perte)), list(annotations=annotations_etat(a), shapes=formes_etat(a)), c(1,4))) })
+
+p <- plot_ly(source="centre-mae") |>
+  add_trace(data=demi_violon, x=~x, y=~VD, type="scatter", mode="lines", fill="toself", fillcolor=plotly::toRGB(blue,.25), line=list(color=blue, width=2), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=segment_x, y=segments_y(mediane_vd), type="scatter", mode="lines", line=list(color=red, width=3), opacity=.72, hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(data=observations, x=~x, y=~VD, type="scatter", mode="markers", marker=list(color=dark, size=9), hovertemplate="VD = %{y:.1f}<extra></extra>", showlegend=FALSE) |>
+  add_trace(data=perte_mae, x=~centre, y=~perte, xaxis="x2", yaxis="y2", type="scatter", mode="lines", line=list(color=blue, width=4), hovertemplate="Centre = %{x:.2f}<br>MAE = %{y:.2f}<extra></extra>", showlegend=FALSE) |>
+  add_trace(x=mediane_vd, y=mae_mediane, xaxis="x2", yaxis="y2", type="scatter", mode="markers", marker=list(color=blue, size=12), hovertemplate="Centre = %{x:.2f}<br>MAE = %{y:.2f}<extra></extra>", showlegend=FALSE) |>
+  layout(autosize=FALSE, width=850, height=335, dragmode=FALSE, hovermode="closest",
+    xaxis=list(domain=c(.01,.45), range=c(.50,1.50), tickvals=1, ticktext="Une modalité", tickfont=list(size=11), title=list(text="<b>VI</b>", font=list(size=13), standoff=2), fixedrange=TRUE, zeroline=FALSE),
+    yaxis=list(domain=c(.18,.85), range=c(min(centres)-.5, max(centres)+.5), title=list(text="<b>VD</b>", font=list(size=13), standoff=3), tickfont=list(size=10), fixedrange=TRUE, zeroline=FALSE),
+    xaxis2=list(domain=c(.57,.99), anchor="y2", range=range(centres), title=list(text="<b>Centre envisagé</b>", font=list(size=13), standoff=2), tickfont=list(size=10), fixedrange=TRUE, zeroline=FALSE),
+    yaxis2=list(domain=c(.18,.85), anchor="x2", range=c(min(mae)*.94, max(mae)*1.07), title=list(text="<b>MAE</b>", font=list(size=13), standoff=3), tickfont=list(size=10), fixedrange=TRUE, zeroline=FALSE),
+    annotations=annotations_etat(mediane_vd), shapes=formes_etat(mediane_vd),
+    sliders=list(list(active=which.min(abs(centres_slider-mediane_vd))-1L, x=.14, len=.72, y=-.20, currentvalue=list(prefix="Centre envisagé = ", xanchor="center", font=list(size=12, color=orange)), font=list(size=1, color="rgba(0,0,0,0)"), ticklen=0, minorticklen=0, tickwidth=0, pad=list(t=12), transition=list(duration=0), steps=etapes)),
+    margin=list(l=58, r=18, t=8, b=88, pad=0)) |>
+  config(displayModeBar=FALSE, responsive=FALSE)
+p
+```
+:::
+
+## Moyenne, MSE et RMSE (à apprendre) {.smaller}
+La **moyenne** est la somme des observations divisée par leur nombre. Elle est très sensible aux observations extrêmes.
+
+La **MSE** (*mean squared error*) est la moyenne des écarts au carré (erreurs quadratiques) à un centre $a$ : $$\mathcal{L}_{\operatorname{MSE}(a)}=\frac{1}{n}\sum_{i=1}^{n}(y_i-a)^2$$
+
+Notez que cette **formule de la MSE est celle d'une variance** ! On a uniquement changé la terminologie ici.
+
+La moyenne minimise la MSE et donc également sa racine carré, la **RMSE qui revient, elle, à un écart-type**. La moyenne, parce-qu'elle minimise la MSE et la RMSE est également un *m-estimateur*.
+
+## La moyenne minimise les pertes MSE et RMSE {.smaller .titre-tres-long}
+
+::: {.graphique-r .plotly-stable}
+
+```{r}
+#| label: fig-moyenne-mse-rmse-interactive
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   MSE et RMSE en fonction du centre envisagé.
+#|   <span class="note-figure"><em>Note.</em> La barre orange du <em>subplot</em> gauche représente le centre envisagé. Le curseur permet de le faire varier. Les segments rouges représentent les erreurs entre ce centre et chaque observation. La moyenne minimise la MSE. Comme la racine carrée est strictement croissante, elle minimise également la RMSE.</span>
+#| fig-width: 9.4
+#| fig-height: 3.95
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+vd <- c(2,3.2,4.1,4.7,5.2,5.8,6.4,7.1,7.8,8.7,9.4,11,12.5,16); jitter_x <- c(.10,.24,.14,.30,.18,.08,.27,.16,.22,.12,.28,.19,.07,.25)
+observations <- data.frame(x=1-jitter_x, VD=vd); moyenne_vd <- mean(vd)
+densite <- density(vd, from=min(vd)-.8, to=max(vd)+.8, n=512, adjust=.9); largeur <- .36*densite$y/max(densite$y)
+demi_violon <- data.frame(x=c(rep(1.03, length(densite$x)), rev(1.03+largeur)), VD=c(densite$x, rev(densite$x)))
+centres <- seq(min(vd)-2, max(vd)+2, length.out=700); mse <- vapply(centres,\(a) mean((vd-a)^2), numeric(1)); rmse <- sqrt(mse)
+pertes <- data.frame(centre=centres, MSE=mse, RMSE=rmse); mse_moyenne <- mean((vd-moyenne_vd)^2); rmse_moyenne <- sqrt(mse_moyenne); plage_pertes <- c(0, max(mse)*1.06)
+centres_slider <- sort(unique(c(seq(min(centres), max(centres), by=.25), moyenne_vd)))
+segment_x <- as.vector(rbind(observations$x, observations$x, rep(NA_real_, nrow(observations))))
+segments_y <- function(a) as.vector(rbind(observations$VD, rep(a, nrow(observations)), rep(NA_real_, nrow(observations))))
+format_fr <- function(x) sub("\\.",",", sprintf("%.2f", x))
+annotations_etat <- function(a) { mse_a <- mean((vd-a)^2); rmse_a <- sqrt(mse_a); ancre <- ifelse(a>median(centres),"right","left"); decalage <- ifelse(a>median(centres),-8,8); list(
+  list(x=.5, y=.99, xref="x domain", yref="paper", text="<b>Erreurs autour du centre</b>", showarrow=FALSE, yanchor="top", font=list(size=15)),
+  list(x=.5, y=.99, xref="x2 domain", yref="paper", text="<b>MSE et RMSE selon le centre</b>", showarrow=FALSE, yanchor="top", font=list(size=15)),
+  list(x=1.37, y=min(a+.65, max(centres)-.35), xref="x", yref="y", text=paste0("<b>Centre = ", format_fr(a),"</b>"), showarrow=FALSE, xanchor="center", font=list(color=orange, size=12), bgcolor="rgba(255,255,255,.94)", bordercolor=orange, borderwidth=1, borderpad=5),
+  list(x=a, y=mse_a, xref="x2", yref="y2", text=paste0("<b>MSE = ", format_fr(mse_a),"</b>"), showarrow=FALSE, xanchor=ancre, xshift=decalage, yanchor="bottom", yshift=16, font=list(color=blue, size=12), bgcolor="rgba(255,255,255,.94)", bordercolor=blue, borderwidth=1, borderpad=6),
+  list(x=a, y=rmse_a, xref="x2", yref="y2", text=paste0("<b>RMSE = ", format_fr(rmse_a),"</b>"), showarrow=FALSE, xanchor=ancre, xshift=decalage, yanchor="top", yshift=18, font=list(color=green, size=12), bgcolor="rgba(255,255,255,.94)", bordercolor=green, borderwidth=1, borderpad=6)) }
+formes_etat <- function(a) list(
+  list(type="line", xref="x", yref="y", x0=.56, x1=1.42, y0=a, y1=a, layer="above", line=list(color=orange, width=5)),
+  list(type="line", xref="x2", yref="y2", x0=a, x1=a, y0=plage_pertes[1], y1=plage_pertes[2], layer="below", line=list(color=orange, width=2, dash="dash")))
+etapes <- lapply(centres_slider,\(a) { mse_a <- mean((vd-a)^2); rmse_a <- sqrt(mse_a); list(method="update", label=format_fr(a), args=list(list(x=list(segment_x, a, a), y=list(segments_y(a), mse_a, rmse_a)), list(annotations=annotations_etat(a), shapes=formes_etat(a)), c(1,5,6))) })
+
+p <- plot_ly(source="centre-mse-rmse") |>
+  add_trace(data=demi_violon, x=~x, y=~VD, type="scatter", mode="lines", fill="toself", fillcolor=plotly::toRGB(blue,.25), line=list(color=blue, width=2), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=segment_x, y=segments_y(moyenne_vd), type="scatter", mode="lines", line=list(color=red, width=3), opacity=.72, hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(data=observations, x=~x, y=~VD, type="scatter", mode="markers", marker=list(color=dark, size=9), hovertemplate="VD = %{y:.1f}<extra></extra>", showlegend=FALSE) |>
+  add_trace(data=pertes, x=~centre, y=~MSE, xaxis="x2", yaxis="y2", type="scatter", mode="lines", name="MSE", line=list(color=blue, width=4), hovertemplate="Centre = %{x:.2f}<br>MSE = %{y:.2f}<extra></extra>") |>
+  add_trace(data=pertes, x=~centre, y=~RMSE, xaxis="x2", yaxis="y2", type="scatter", mode="lines", name="RMSE", line=list(color=green, width=4), hovertemplate="Centre = %{x:.2f}<br>RMSE = %{y:.2f}<extra></extra>") |>
+  add_trace(x=moyenne_vd, y=mse_moyenne, xaxis="x2", yaxis="y2", type="scatter", mode="markers", marker=list(color=blue, size=12), hovertemplate="Centre = %{x:.2f}<br>MSE = %{y:.2f}<extra></extra>", showlegend=FALSE) |>
+  add_trace(x=moyenne_vd, y=rmse_moyenne, xaxis="x2", yaxis="y2", type="scatter", mode="markers", marker=list(color=green, size=12), hovertemplate="Centre = %{x:.2f}<br>RMSE = %{y:.2f}<extra></extra>", showlegend=FALSE) |>
+  layout(autosize=FALSE, width=850, height=335, dragmode=FALSE, hovermode="closest",
+    xaxis=list(domain=c(.01,.45), range=c(.50,1.50), tickvals=1, ticktext="Une modalité", tickfont=list(size=11), title=list(text="<b>VI</b>", font=list(size=13), standoff=2), fixedrange=TRUE, zeroline=FALSE),
+    yaxis=list(domain=c(.18,.85), range=c(min(centres)-.5, max(centres)+.5), title=list(text="<b>VD</b>", font=list(size=13), standoff=3), tickfont=list(size=10), fixedrange=TRUE, zeroline=FALSE),
+    xaxis2=list(domain=c(.57,.99), anchor="y2", range=range(centres), title=list(text="<b>Centre envisagé</b>", font=list(size=13), standoff=2), tickfont=list(size=10), fixedrange=TRUE, zeroline=FALSE),
+    yaxis2=list(domain=c(.18,.85), anchor="x2", range=plage_pertes, title=list(text="<b>Perte</b>", font=list(size=13), standoff=3), tickfont=list(size=10), fixedrange=TRUE, zeroline=FALSE),
+    annotations=annotations_etat(moyenne_vd), shapes=formes_etat(moyenne_vd),
+    legend=list(orientation="h", x=.78, xanchor="center", y=.90, yanchor="top", font=list(size=10), bgcolor="rgba(255,255,255,.85)", itemwidth=30),
+    sliders=list(list(active=which.min(abs(centres_slider-moyenne_vd))-1L, x=.14, len=.72, y=-.20, currentvalue=list(prefix="Centre envisagé = ", xanchor="center", font=list(size=12, color=orange)), font=list(size=1, color="rgba(0,0,0,0)"), ticklen=0, minorticklen=0, tickwidth=0, pad=list(t=12), transition=list(duration=0), steps=etapes)),
+    margin=list(l=58, r=18, t=8, b=88, pad=0)) |>
+  config(displayModeBar=FALSE, responsive=FALSE)
+p
+```
+:::
+
+## La démarche inférentielle NHST {.smaller}
+<div style="font-size: 0.95em;">
+L'inférence consiste à interpréter une observation faite sur un **échantillon** comme révélatrice d'une caractéristique sous-jacente de sa **population parente**. Plusieurs approches existent et posent chacune une question différente.
+
+En fréquentisme (il y en a de plusieurs types : Fisher, Neyman-Pearson, NHST (*null hypothesis significance testing*) ou tests *interval-null*). On évalue une conclusion par des réplications hypothétiques de l’étude. On formule des hypothèses, on choisit une statistique de test, puis on mesure la compatibilité des données avec $H_0$. Les décisions reposent sur des seuils contrôlant les erreurs de conclusion à long terme lors des réplications ($p$-value : combien de % de ma distribution de référence pour $H_0$ est au moins aussi extrême que ce que j'observe ?).
+
+La démarche inférentielle fréquentiste pose une hypothèse nulle $H_0$ ("il n'y a pas d'effet dans la population") et une hypothèse alternative $H_1$ ("il existe un effet statistique dans la population"). On évalue ensuite la compatibilité de l'observation avec $H_0$ via un seuil alpha qui détermine la statistique critique du test. Il contrôle le risque de déclarer un effet comme étant significatif à tort dans la population, c'est le risque d'erreur de type I (de commettre un faux positif). On utilise la $p$-*value* pour rejeter $H_0$ si elle est inférieure à $\alpha$.
+
+</div>
+
+## Composante systématique et aléatoire (annexe) {.smaller .titre-tres-long}
+
+Une VD observée dépend à la fois de ce que le modèle explique et d'une variabilité qui subsiste entre les observations. Un modèle statistique distingue donc deux composantes. La **composante systématique** décrit comment les prédicteurs $X_i$ (les VI) font varier la valeur attendue de la VD. La **composante aléatoire** décrit comment les observations $Y_i$ (la VD) peuvent varier autour de cette valeur attendue, même pour des observations ayant les mêmes valeurs de $X_i$.
+
+Pour chaque observation $i$, on définit sa **moyenne conditionnelle** $\mu_i=\mathbb E(Y_i\mid X_i)$. Elle correspond à la valeur moyenne attendue de $Y$ parmi des observations possédant les mêmes valeurs des prédicteurs $X_i$. Dans un modèle linéaire généralisé, la composante systématique s'écrit sous forme d'un **prédicteur linéaire (i.e., d'une somme pondérée)** appelé $\eta$ :  $\eta_i=\beta_0+\beta_1X_1+\beta_2X_2+\cdots$ et une fonction de lien relie cette composante systématique à la moyenne conditionnelle $g(\mu_i)=\eta_i$. 
+
+Pour les modèles linéaires où l'on ne précise pas le terme "généralisé", cette fonction de lien $g()$ revient à une simple multiplication par 1 (fonction identité).
+
+## L'écriture d'un modèle, en général (annexe) {.smaller .titre-tres-long}
+
+Dans tous les cas, qu’il s’agisse d’un modèle linéaire gaussien (*z*-score, *t*-test, ANOVA, ANOCVA, régression linéaire) ou d’un GLM utilisant une autre distribution, la **composante aléatoire** correspond à la distribution supposée des valeurs possibles de $Y_i$ conditionnellement à $X_i$, ce que l'on note $Y_i\mid X_i\sim\text{Distribution}(\mu_i,\ldots)$. Cette distribution/composante aléatoire peut être normale, binomiale (dont la Bernoulli), Poisson, Gamma, Inverse-Gaussienne, etc. Elle décrit la variabilité qui subsiste **autour de ce que le modèle prédit**.
+
+$$
+\underbrace{
+g(\mu_i)=\eta_i
+=\beta_0+\beta_1X_1+\beta_2X_2+\cdots
+}_{\substack{\text{composante systématique}\\[-1pt]\text{ce que les prédicteurs/VI expliquent}}}
+\qquad\text{avec}\qquad
+\underbrace{
+Y_i\mid X_i\sim\mathcal D(\mu_i,\ldots)
+}_{\substack{\text{composante aléatoire}\\[-1pt]\text{variabilité conditionnelle de la VD}}},
+\qquad
+\mu_i=\mathbb E(Y_i\mid X_i).
+$$
+où $g()$ est la fonction de lien (fonction identité dans les modèles linéaires), où $\eta_i$ est le prédicteur linéaire (donc une somme pondérée), où $Y_i\mid X_i$ est la distribution conditionnelle de la VD pour les valeurs de VI $X_i$, et où $\mathcal D$ est la distribution conditionnelle supposée par le modèle stat. Enfin, $\mu_i=\mathbb E(Y_i\mid X_i)$ est la moyenne conditionnelle, c'est-à-dire la valeur moyenne de la VD attendue pour ces valeurs de VI.
+
+## Quand utiliser quelle loi ? {.smaller .titre-long}
+<div style="font-size:0.83em;">
+| Nature de la VD | Loi paramétrique potentiellement adaptée | Exemples en psy/neuropsy |
+|:--|:--|:--|
+| Continue, approximativement symétrique autour de la moyenne | **Normale** | QI et autres scores standardisés sur un grand échantillon normatif |
+| Décompte entier, $\geq 0$, sans borne supérieure fixe | **Poisson** | Nombre d'erreurs au *Wisconsin Card Sorting Test* ; score brut ou intrusions aux fluences verbales |
+| Nombre de succès sur un nombre fixé d'essais | **Binomiale** | Rappel libre ou rappel différé sur **16 items** au RL/RI-16 : score compris entre 0 et 16 |
+| Réponse binaire | **Bernoulli** | Item rappelé / non rappelé ; réponse correcte (1) / incorrecte (0) |
+| Continue, strictement positive et asymétrique à droite | **Gamma** < **Inverse-Gaussienne** < **Tweedie** | Temps de réaction, temps de réalisation d'une tâche |
+
+::: fragment
+→ Le choix de la loi dépend d'abord du **support de la VD** : continue ou discrète, bornée ou non (peut-elle montrer un effet de plancher ou de plafond ?)
+
+→ D'un point de vue hétéroscédasticité, les temps de réaction sont souvent des variables embêtantes : leur variance tend à augmenter selon une loi de puissance de la moyenne : autrement dit, les conditions où les réponses sont plus lentes sont souvent aussi celles où elles sont (beaucoup) plus dispersées.
+:::
+</div>
+
+## Fonctions de lien (annexe) {.smaller }
+
+La **fonction de lien** $g()$ relie la moyenne conditionnelle $\mu_i$ au prédicteur linéaire $\eta_i$ : 
+
+$$g(\mu_i)=\eta_i=\beta_0+\beta_1X_{1i}+\cdots$$
+
+Elle permet au modèle de respecter le **support de la VD**. Quelques exemples de fonction de lien usuelles :
+**Identité** : $\mu\in]-\infty,+\infty[$ → loi normale (la VD ne montre ni effet de plancher ni effet de plafond).
+
+**Log** : $\mu>0$ → Poisson, Gamma, Inverse-Gaussienne (variables ayant un 0 naturel ou susceptibles de montrer un effet de plancher mais pas plafond).
+
+**Logit** : $0<\mu<1$ → Bernoulli / Binomiale (proportions : variables ayant un min et un max, susceptibles de montrer un effet de plancher et de plafond).
+
+## Illustration de GLMs {.smaller .titre-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:390px;"}
+```{r}
+#| label: fig-glm-familles-interactive
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Influence de la famille et de la fonction de lien sur la moyenne et la distribution conditionnelles.
+#|   <span class="note-figure"><em>Note.</em> À gauche, la ligne représente la moyenne conditionnelle $\mu=\mathbb E(Y\mid X)$ et la bande représente $\pm1$ écart-type conditionnel. À droite, la distribution montre les valeurs possibles de $Y$ pour la valeur de $X$ sélectionnée. Le même prédicteur linéaire peut ainsi produire des observations continues, des décomptes, des proportions ou des valeurs continues positives.</span>
+#| fig-width: 9.4
+#| fig-height: 3.85
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+x <- seq(-2.5,2.5,length.out=301)
+x_slider <- seq(-2,2,.25)
+n_bin <- 16L
+phi_gamma <- .15
+phi_ig <- .08
+
+invgauss_density <- function(y,mu,phi){
+  lambda <- 1/phi
+  sqrt(lambda/(2*pi*y^3))*exp(-lambda*(y-mu)^2/(2*mu^2*y))
+}
+
+famille <- function(nom){
+  if(nom=="normale"){
+    mu <- 10+2*x
+    variance <- rep(4,length(x))
+    lien <- "Identité"
+    formule <- "μ = η"
+    ylabel <- "Valeur attendue de Y"
+    right_label <- "Valeurs possibles de Y"
+    support <- "Y ∈ ℝ"
+  }
+  if(nom=="poisson"){
+    eta <- 1.2+.45*x
+    mu <- exp(eta)
+    variance <- mu
+    lien <- "Log"
+    formule <- "μ = exp(η)"
+    ylabel <- "Décompte attendu"
+    right_label <- "Décompte Y"
+    support <- "Y = 0, 1, 2, …"
+  }
+  if(nom=="binomiale"){
+    eta <- x
+    mu <- plogis(eta)
+    variance <- mu*(1-mu)/n_bin
+    lien <- "Logit"
+    formule <- "p = logit⁻¹(η)"
+    ylabel <- "Proportion attendue"
+    right_label <- "Proportion K succès / N"
+    support <- "0 ≤ K succès / N ≤ 1"
+  }
+  if(nom=="gamma"){
+    eta <- 1.5+.35*x
+    mu <- exp(eta)
+    variance <- phi_gamma*mu^2
+    lien <- "Log"
+    formule <- "μ = exp(η)"
+    ylabel <- "Valeur positive attendue"
+    right_label <- "Valeurs possibles de Y"
+    support <- "Y > 0"
+  }
+  if(nom=="invgauss"){
+    eta <- 1.35+.32*x
+    mu <- exp(eta)
+    variance <- phi_ig*mu^3
+    lien <- "Log"
+    formule <- "μ = exp(η)"
+    ylabel <- "Valeur positive attendue"
+    right_label <- "Valeurs possibles de Y"
+    support <- "Y > 0"
+  }
+
+  sd <- sqrt(variance)
+  bas <- mu-sd
+  haut <- mu+sd
+  if(nom%in%c("poisson","gamma","invgauss")) bas <- pmax(0,bas)
+  if(nom=="binomiale"){bas <- pmax(0,bas); haut <- pmin(1,haut)}
+
+  list(mu=mu,variance=variance,sd=sd,bas=bas,haut=haut,lien=lien,
+       formule=formule,ylabel=ylabel,right_label=right_label,support=support)
+}
+
+distribution_conditionnelle <- function(nom,x0){
+  if(nom=="normale"){
+    mu <- 10+2*x0; sd <- 2
+    xx <- seq(0,20,length.out=400); yy <- dnorm(xx,mu,sd)
+    return(list(x0=x0,mu=mu,var=sd^2,line_x=xx,line_y=yy,
+                mark_x=numeric(),mark_y=numeric(),xrange=c(0,20)))
+  }
+
+  if(nom=="poisson"){
+    mu <- exp(1.2+.45*x0)
+    k <- 0:18; pr <- dpois(k,mu)
+    sx <- as.vector(rbind(k,k,NA_real_)); sy <- as.vector(rbind(0*pr,pr,NA_real_))
+    return(list(x0=x0,mu=mu,var=mu,line_x=sx,line_y=sy,
+                mark_x=k,mark_y=pr,xrange=c(-.5,18.5)))
+  }
+
+  if(nom=="binomiale"){
+    p <- plogis(x0); k <- 0:n_bin; xx <- k/n_bin; pr <- dbinom(k,n_bin,p)
+    sx <- as.vector(rbind(xx,xx,NA_real_)); sy <- as.vector(rbind(0*pr,pr,NA_real_))
+    return(list(x0=x0,mu=p,var=p*(1-p)/n_bin,line_x=sx,line_y=sy,
+                mark_x=xx,mark_y=pr,xrange=c(-.03,1.03)))
+  }
+
+  if(nom=="gamma"){
+    mu <- exp(1.5+.35*x0); shape <- 1/phi_gamma
+    xx <- seq(.001,22,length.out=500); yy <- dgamma(xx,shape=shape,scale=mu/shape)
+    return(list(x0=x0,mu=mu,var=phi_gamma*mu^2,line_x=xx,line_y=yy,
+                mark_x=numeric(),mark_y=numeric(),xrange=c(0,22)))
+  }
+
+  mu <- exp(1.35+.32*x0)
+  xx <- seq(.02,30,length.out=600); yy <- invgauss_density(xx,mu,phi_ig)
+  list(x0=x0,mu=mu,var=phi_ig*mu^3,line_x=xx,line_y=yy,
+       mark_x=numeric(),mark_y=numeric(),xrange=c(0,30))
+}
+
+noms <- c("normale","poisson","binomiale","gamma","invgauss")
+libelles <- c(normale="Normale",poisson="Poisson",binomiale="Binomiale",
+              gamma="Gamma",invgauss="Inverse-Gaussienne")
+
+courbes <- lapply(noms,famille); names(courbes) <- noms
+etats <- setNames(lapply(noms,function(nom){
+  setNames(lapply(x_slider,function(x0){
+    f <- courbes[[nom]]
+    d <- distribution_conditionnelle(nom,x0)
+    i <- which.min(abs(x-x0))
+
+    list(
+      band_x=c(x,rev(x)),
+      band_y=c(f$bas,rev(f$haut)),
+      mean_x=x,
+      mean_y=f$mu,
+      point_x=x0,
+      point_y=f$mu[i],
+      dist_line_x=d$line_x,
+      dist_line_y=d$line_y,
+      dist_mark_x=d$mark_x,
+      dist_mark_y=d$mark_y,
+      left_range=range(c(f$bas,f$haut))*c(.98,1.02),
+      right_range=d$xrange,
+      mu=d$mu,
+      variance=d$var,
+      lien=f$lien,
+      formule=f$formule,
+      ylabel=f$ylabel,
+      right_label=f$right_label,
+      support=f$support
+    )
+  }),sprintf("%.2f",x_slider))
+}),noms)
+
+for(nom in noms){
+  ymax <- max(vapply(etats[[nom]],\(z)
+    max(c(z$dist_line_y,z$dist_mark_y),na.rm=TRUE),numeric(1)))
+  for(k in names(etats[[nom]])) etats[[nom]][[k]]$right_ymax <- 1.12*ymax
+}
+
+format_fr <- function(x,n=2) sub("\\.",",",sprintf(paste0("%.",n,"f"),x))
+etat_initial <- etats$normale[["0.00"]]
+
+annotation_etat <- function(nom,s){
+  variance_txt <- if(nom=="normale") paste0("Var(Y|X) = ",format_fr(s$variance))
+  else if(nom=="poisson") paste0("Var(Y|X) = μ = ",format_fr(s$variance))
+  else if(nom=="binomiale") paste0("Var(Y/16|X) = ",format_fr(s$variance,3))
+  else if(nom=="gamma") paste0("Var(Y|X) = φμ² = ",format_fr(s$variance))
+  else paste0("Var(Y|X) = φμ³ = ",format_fr(s$variance))
+
+  list(
+    list(x=.5,y=.99,xref="x domain",yref="paper",
+         text="<b>Moyenne et dispersion conditionnelles</b>",
+         showarrow=FALSE,yanchor="top",font=list(size=14,color=dark)),
+    list(x=.5,y=.99,xref="x2 domain",yref="paper",
+         text="<b>Distribution de Y | X sélectionné</b>",
+         showarrow=FALSE,yanchor="top",font=list(size=14,color=dark)),
+    list(x=.02,y=.89,xref="paper",yref="paper",xanchor="left",yanchor="top",
+         text=paste0("<b>",libelles[[nom]],"</b> · lien ",s$lien,
+                     "<br>",s$formule," · ",s$support),
+         showarrow=FALSE,align="left",font=list(size=10.5,color=dark),
+         bgcolor="rgba(255,255,255,.92)",bordercolor=blue,borderwidth=1,borderpad=5),
+    list(x=.99,y=.89,xref="paper",yref="paper",xanchor="right",yanchor="top",
+         text=paste0("<b>X = ",format_fr(s$point_x),"</b>",
+                     "<br>μ = ",format_fr(s$mu),
+                     "<br>",variance_txt),
+         showarrow=FALSE,align="right",font=list(size=10.5,color=dark),
+         bgcolor="rgba(255,255,255,.92)",bordercolor=orange,borderwidth=1,borderpad=5)
+  )
+}
+
+p <- plot_ly(source="glm-familles") |>
+  add_trace(x=etat_initial$band_x,y=etat_initial$band_y,type="scatter",mode="lines",
+            fill="toself",fillcolor=plotly::toRGB(blue,.14),
+            line=list(width=0),hoverinfo="skip",showlegend=FALSE) |>
+  add_trace(x=etat_initial$mean_x,y=etat_initial$mean_y,type="scatter",mode="lines",
+            line=list(color=blue,width=4),
+            hovertemplate="X = %{x:.2f}<br>μ = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=etat_initial$point_x,y=etat_initial$point_y,type="scatter",mode="markers",
+            marker=list(color=orange,size=12,line=list(color="white",width=1.5)),
+            hovertemplate="X = %{x:.2f}<br>μ = %{y:.2f}<extra></extra>",showlegend=FALSE) |>
+  add_trace(x=etat_initial$dist_line_x,y=etat_initial$dist_line_y,
+            xaxis="x2",yaxis="y2",type="scatter",mode="lines",
+            line=list(color=green,width=3),
+            hovertemplate="Y = %{x:.2f}<br>Densité / probabilité = %{y:.3f}<extra></extra>",
+            showlegend=FALSE) |>
+  add_trace(x=etat_initial$dist_mark_x,y=etat_initial$dist_mark_y,
+            xaxis="x2",yaxis="y2",type="scatter",mode="markers",
+            marker=list(color=green,size=7),
+            hovertemplate="Y = %{x:.2f}<br>Probabilité = %{y:.3f}<extra></extra>",
+            showlegend=FALSE) |>
+  layout(
+    width=850,height=365,autosize=FALSE,dragmode=FALSE,hovermode="closest",
+    font=list(family="CMU Serif",color=dark),
+    paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
+    xaxis=list(domain=c(.02,.54),range=c(-2.5,2.5),
+               title=list(text="<b>Prédicteur X</b>",font=list(size=12),standoff=4),
+               tickfont=list(size=10),fixedrange=TRUE,zeroline=FALSE),
+    yaxis=list(domain=c(.17,.78),range=etat_initial$left_range,
+               title=list(text="<b>Valeur attendue de Y</b>",font=list(size=12)),
+               tickfont=list(size=10),fixedrange=TRUE,zeroline=FALSE,
+               gridcolor="rgba(54,69,74,.15)"),
+    xaxis2=list(domain=c(.64,.99),anchor="y2",range=etat_initial$right_range,
+                title=list(text="<b>Valeurs possibles de Y</b>",font=list(size=12),standoff=4),
+                tickfont=list(size=10),fixedrange=TRUE,zeroline=FALSE),
+    yaxis2=list(domain=c(.17,.78),anchor="x2",range=c(0,etat_initial$right_ymax),
+                title=list(text="<b>Densité / probabilité</b>",font=list(size=12)),
+                tickfont=list(size=10),fixedrange=TRUE,zeroline=FALSE,
+                gridcolor="rgba(54,69,74,.15)"),
+    shapes=list(list(type="line",xref="x",yref="paper",
+                     x0=0,x1=0,y0=.17,y1=.78,
+                     line=list(color=orange,width=2,dash="dash"))),
+    annotations=annotation_etat("normale",etat_initial),
+    updatemenus=list(list(
+      type="buttons",direction="right",active=0,showactive=TRUE,
+      x=.5,xanchor="center",y=1.16,yanchor="top",
+      font=list(size=9,color=dark),bgcolor="white",
+      bordercolor=blue,borderwidth=1,
+      buttons=lapply(noms,\(nom) list(label=libelles[[nom]],method="skip",args=list()))
+    )),
+    sliders=list(list(
+      active=which(x_slider==0)-1L,x=.15,len=.70,y=-.18,
+      currentvalue=list(prefix="Prédicteur : X = ",xanchor="center",
+                        font=list(size=12,color=orange)),
+      font=list(size=1,color="rgba(0,0,0,0)"),
+      ticklen=0,minorticklen=0,tickwidth=0,pad=list(t=12),
+      transition=list(duration=0),
+      steps=lapply(x_slider,\(z)
+        list(label=sprintf("%.2f",z),method="skip",args=list()))
+    )),
+    margin=list(l=68,r=18,t=66,b=82)
+  ) |>
+  config(displayModeBar=FALSE,responsive=FALSE)
+
+etats_json <- jsonlite::toJSON(etats,auto_unbox=TRUE,null="null",digits=NA)
+
+js <- sprintf("
+function(el,x){
+  const states=%s;
+  let family='normale';
+  let xv='0.00';
+
+  const labels={
+    'Normale':'normale',
+    'Poisson':'poisson',
+    'Binomiale':'binomiale',
+    'Gamma':'gamma',
+    'Inverse-Gaussienne':'invgauss'
+  };
+
+  const fr=v=>(+v).toFixed(2).replace('.',',');
+
+  function annotations(f,s){
+    let variance='';
+    if(f==='normale') variance='Var(Y|X) = '+fr(s.variance);
+    if(f==='poisson') variance='Var(Y|X) = μ = '+fr(s.variance);
+    if(f==='binomiale') variance='Var(Y/16|X) = '+(+s.variance).toFixed(3).replace('.',',');
+    if(f==='gamma') variance='Var(Y|X) = φμ² = '+fr(s.variance);
+    if(f==='invgauss') variance='Var(Y|X) = φμ³ = '+fr(s.variance);
+
+    return [
+      {x:.5,y:.99,xref:'x domain',yref:'paper',
+       text:'<b>Moyenne et dispersion conditionnelles</b>',
+       showarrow:false,yanchor:'top',font:{size:14,color:'#000000'}},
+      {x:.5,y:.99,xref:'x2 domain',yref:'paper',
+       text:'<b>Distribution de Y | X sélectionné</b>',
+       showarrow:false,yanchor:'top',font:{size:14,color:'#000000'}},
+      {x:.02,y:.89,xref:'paper',yref:'paper',xanchor:'left',yanchor:'top',
+       text:'<b>'+Object.keys(labels).find(k=>labels[k]===f)+'</b> · lien '+s.lien+
+            '<br>'+s.formule+' · '+s.support,
+       showarrow:false,align:'left',font:{size:10.5,color:'#000000'},
+       bgcolor:'rgba(255,255,255,.92)',bordercolor:'#6666E8',
+       borderwidth:1,borderpad:5},
+      {x:.99,y:.89,xref:'paper',yref:'paper',xanchor:'right',yanchor:'top',
+       text:'<b>X = '+fr(s.point_x)+'</b><br>μ = '+fr(s.mu)+'<br>'+variance,
+       showarrow:false,align:'right',font:{size:10.5,color:'#000000'},
+       bgcolor:'rgba(255,255,255,.92)',bordercolor:'#E69F55',
+       borderwidth:1,borderpad:5}
+    ];
+  }
+
+  function apply(){
+    const s=states[family][xv];
+
+    Plotly.restyle(el,{
+      x:[s.band_x,s.mean_x,[s.point_x],s.dist_line_x,s.dist_mark_x],
+      y:[s.band_y,s.mean_y,[s.point_y],s.dist_line_y,s.dist_mark_y]
+    },[0,1,2,3,4]);
+
+    Plotly.relayout(el,{
+      'yaxis.range':s.left_range,
+      'yaxis.title.text':'<b>'+s.ylabel+'</b>',
+      'xaxis2.range':s.right_range,
+      'xaxis2.title.text':'<b>'+s.right_label+'</b>',
+      'yaxis2.range':[0,s.right_ymax],
+      'shapes':[{
+        type:'line',xref:'x',yref:'paper',
+        x0:s.point_x,x1:s.point_x,y0:.17,y1:.78,
+        line:{color:'#E69F55',width:2,dash:'dash'}
+      }],
+      'annotations':annotations(family,s)
+    });
+  }
+
+  el.on('plotly_buttonclicked',ev=>{
+    if(labels[ev.button.label]!==undefined){
+      family=labels[ev.button.label];
+      apply();
+    }
+  });
+
+  el.on('plotly_sliderchange',ev=>{
+    xv=(+ev.step.label).toFixed(2);
+    apply();
+  });
+}
+",etats_json)
+
+htmlwidgets::onRender(p,js)
+```
+:::
+
+## L'écriture d'un modèle, en particulier (à apprendre) {.smaller .titre-tres-long}
+
+Cette année et sans doute pour le reste de votre cursus, ce sera principalement le cas particulier du **modèle linéaire gaussien** qui sera développé : il est nécessaire de le maîtriser avant de pouvoir passer au reste.
+
+Ici, la fonction de lien $g()$ est l'identité, i.e., $g(\mu_i)=\mu_i$, et on peut donc l'oublier.
+
+La composante aléatoire (la distribution des données autour du modèle) suit une loi normale : $Y_i\mid X_i\sim\mathcal N(\mu_i,\sigma^2), \quad \mu_i=\beta_0+\beta_1X_1+\beta_2X_2+\cdots$.
+
+Ici, le modèle se note comme une somme pondérée à laquelle on ajoute une petite erreur de modélisation sur laquelle on pose l'hypothèse qu'elle suit une loi normale :
+
+$$
+Y_i=
+\underbrace{\beta_0+\beta_1X_1+\beta_2X_2+\cdots}_{\substack{\text{composante systématique}\\[-1pt]\mu_i=\mathbb E(Y_i\mid X_i)}}
++
+\underbrace{\varepsilon_i}_{\substack{\text{composante aléatoire}\\[-1pt]\varepsilon_i\sim\mathcal N(0,\sigma^2)}}.
+$$
+
+Les *t*-tests, ANOVA, ANCOVA et régressions linéaires, et corrélation de Pearson utilisent cette écriture : ce sont des sommes pondérées.
+
+## De l'observation au résidu : un passage par le modèle {.smaller .titre-tres-long}
+
+Une fois le modèle estimé, on obtient une moyenne conditionnelle prédite, bref une prédiction moyenne sur la VD qui est fonction de nos VI : $\widehat\mu_i=\widehat{\mathbb E(Y_i\mid X_i)}$.
+
+L'observation empirique $y_i$ est la valeur effectivement mesurée. Le **résidu mesure l'écart entre cette observation et ce que le modèle attend/prédit** : $e_i = y_i-\widehat\mu_i$. Par exemple, le $z$-score est un résidu standardisé (i.e., divisé par l'écart-type).
+
+Le résidu permet ainsi de vérifier si les écarts observés au modèle sont compatibles avec la **distribution conditionnelle supposée**.
+
+Dans un modèle linéaire gaussien (e.g., *t*-test, ANOVA, ANCOVA), on s'intéresse à la normalité (les observations doivent former une courbe en cloche autour du modèle) et à la variance des résidus qui doit être constante tout du long du modèle.
+
+## Modèle linéaire et résidus, GLM et résidus quantiles {.smaller .titre-tres-long}
+
+::: {.plotly-stable style="margin-top:-18px;--plotly-height:385px;"}
+```{r}
+#| label: fig-observations-residus-interactive2
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   De la distribution conditionnelle de la VD aux résidus dans un *t*-test, une ANOVA, une ANCOVA (et leurs généralisations).
+#|   <span style="font-size:0.72em;"><em>Note.</em> À gauche, le modèle représente la moyenne conditionnelle $\widehat\mu_i=\widehat{\mathbb E(Y_i\mid X_i)}$. À droite, en mode VD, plusieurs distributions $Y\mid X$ illustrent la variabilité conditionnelle autour de cette prédiction. Pour l’ANCOVA, les distributions des trois groupes sont représentées à 45 ans. Pour les GLM il faudra choisir les résidus quantiles pour vérifier les conditions d'application. Les GLM sont accessibles sous JASP par défaut.</span>
+#| fig-width: 9.4
+#| fig-height: 3.75
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+set.seed(20260822)
+
+bleu <- if(exists("blue")) blue else "#2C7FB8"
+orange2 <- if(exists("orange")) orange else "#D97706"
+vert <- if(exists("green")) green else "#3A9D5D"
+sombre <- if(exists("dark")) dark else "#263442"
+rouge <- if(exists("red")) red else "#C83E4D"
+cols3 <- c(bleu,orange2,vert)
+n_bin <- 20L
+
+predire <- function(fit,nd){
+  pr <- predict(fit,newdata=nd,type="link",se.fit=TRUE)
+  inv <- fit$family$linkinv
+  tibble(fit=inv(pr$fit),lo=inv(pr$fit-1.96*pr$se.fit),hi=inv(pr$fit+1.96*pr$se.fit))
+}
+
+demi_violon <- function(y,centre){
+  d <- density(y,n=220,adjust=.9)
+  w <- .28*d$y/max(d$y)
+  tibble(x=c(rep(centre-.32,length(d$x)),rev(centre-.32+w)),y=c(d$x,rev(d$x)))
+}
+
+simuler <- function(plan,famille){
+  if(plan=="t"){
+    n <- 250L
+    lev <- c("Femmes","Hommes")
+    dat <- tibble(groupe=factor(rep(lev,each=n),levels=lev),x_aff=rep(1:2,each=n)+runif(2*n,.05,.23))
+    if(famille=="gauss") dat <- dat |> mutate(mu=c(rep(115,n),rep(75,n)),y=rnorm(2*n,mu,4))
+    if(famille=="poisson") dat <- dat |> mutate(mu=c(rep(22,n),rep(9,n)),y=rpois(2*n,mu))
+    if(famille=="binom") dat <- dat |> mutate(p=c(rep(.78,n),rep(.36,n)),y=rbinom(2*n,n_bin,p))
+    if(famille=="gamma") dat <- dat |> mutate(mu=c(rep(115,n),rep(65,n)),shape=12,y=rgamma(2*n,shape=shape,scale=mu/shape))
+    form <- if(famille=="binom") cbind(y,n_bin-y)~groupe else y~groupe
+  }
+
+  if(plan=="anova"){
+    n <- 250L
+    lev <- c("Méthode A","Méthode B","Méthode C")
+    dat <- tibble(groupe=factor(rep(lev,each=n),levels=lev),x_aff=rep(1:3,each=n)+runif(3*n,.05,.23))
+    if(famille=="gauss") dat <- dat |> mutate(mu=rep(c(86,100,114),each=n),y=rnorm(3*n,mu,4.2))
+    if(famille=="poisson") dat <- dat |> mutate(mu=rep(c(8,16,28),each=n),y=rpois(3*n,mu))
+    if(famille=="binom") dat <- dat |> mutate(p=rep(c(.28,.55,.80),each=n),y=rbinom(3*n,n_bin,p))
+    if(famille=="gamma") dat <- dat |> mutate(mu=rep(c(65,95,130),each=n),shape=12,y=rgamma(3*n,shape=shape,scale=mu/shape))
+    form <- if(famille=="binom") cbind(y,n_bin-y)~groupe else y~groupe
+  }
+
+  if(plan=="ancova"){
+    n <- 250L
+    lev <- c("Groupe A","Groupe B","Groupe C")
+    dat <- tibble(groupe=factor(rep(lev,each=n),levels=lev),age=runif(3*n,20,70)) |> mutate(age_c=age-45)
+    if(famille=="gauss") dat <- dat |> mutate(mu=rep(c(86,100,114),each=n)+.22*age_c,y=rnorm(3*n,mu,3.8))
+    if(famille=="poisson") dat <- dat |> mutate(mu=exp(rep(log(c(8,16,28)),each=n)+.022*age_c),y=rpois(3*n,mu))
+    if(famille=="binom") dat <- dat |> mutate(p=plogis(rep(c(-1.00,0,1.00),each=n)+.035*age_c),y=rbinom(3*n,n_bin,p))
+    if(famille=="gamma") dat <- dat |> mutate(mu=exp(rep(log(c(65,95,130)),each=n)+.012*age_c),shape=12,y=rgamma(3*n,shape=shape,scale=mu/shape))
+    form <- if(famille=="binom") cbind(y,n_bin-y)~groupe+age_c else y~groupe+age_c
+  }
+
+  fam <- switch(famille,
+    gauss=gaussian(link="identity"),
+    poisson=poisson(link="log"),
+    binom=binomial(link="logit"),
+    gamma=Gamma(link="log")
+  )
+
+  fit <- glm(form,data=dat,family=fam)
+  dat$mu_hat <- predict(fit,type="response")
+  dat$y_aff <- if(famille=="binom") dat$y/n_bin else dat$y
+
+  if(famille=="gauss"){
+    sigma <- sqrt(summary(fit)$dispersion)
+    u <- pnorm(dat$y,mean=dat$mu_hat,sd=sigma)
+  }
+  if(famille=="poisson"){
+    lo <- ppois(dat$y-1,lambda=dat$mu_hat)
+    hi <- ppois(dat$y,lambda=dat$mu_hat)
+    u <- runif(nrow(dat),lo,hi)
+  }
+  if(famille=="binom"){
+    lo <- pbinom(dat$y-1,size=n_bin,prob=dat$mu_hat)
+    hi <- pbinom(dat$y,size=n_bin,prob=dat$mu_hat)
+    u <- runif(nrow(dat),lo,hi)
+  }
+  if(famille=="gamma"){
+    shape <- 1/summary(fit)$dispersion
+    u <- pgamma(dat$y,shape=shape,scale=dat$mu_hat/shape)
+  }
+
+  u <- pmin(pmax(u,1e-7),1-1e-7)
+  dat$rquant <- qnorm(u)
+  dr <- density(dat$rquant,from=-4,to=4,n=320,adjust=.95)
+
+  if(plan!="ancova"){
+    nd <- tibble(groupe=factor(lev,levels=lev))
+    pr <- predire(fit,nd)
+    xm <- dat |> group_by(groupe) |> summarise(x=mean(x_aff),.groups="drop") |> pull(x)
+    grille <- tibble(x=xm,groupe=factor(lev,levels=lev),fit=pr$fit,lo=pr$lo,hi=pr$hi)
+    mu_cond <- pr$fit
+    labels_cond <- lev
+    cols_cond <- if(plan=="t") c(bleu,orange2) else cols3
+  } else {
+    grille <- tidyr::expand_grid(groupe=factor(lev,levels=lev),age=seq(20,70,length.out=140)) |> mutate(age_c=age-45)
+    grille <- bind_cols(grille,predire(fit,grille))
+    ndc <- tibble(groupe=factor(lev,levels=lev),age=45,age_c=0)
+    mu_cond <- predire(fit,ndc)$fit
+    labels_cond <- lev
+    cols_cond <- cols3
+  }
+
+  if(famille=="gauss"){
+    sigma <- sqrt(summary(fit)$dispersion)
+    xx <- seq(min(mu_cond)-4*sigma,max(mu_cond)+4*sigma,length.out=320)
+    cond <- Map(function(m,l,co) list(data=tibble(x=xx,d=dnorm(xx,m,sigma)),label=l,col=co,discret=FALSE),mu_cond,labels_cond,cols_cond)
+    denslab <- "Densité"
+  }
+  if(famille=="poisson"){
+    xx <- 0:qpois(.9995,max(mu_cond))
+    cond <- Map(function(m,l,co) list(data=tibble(x=xx,d=dpois(xx,m)),label=l,col=co,discret=TRUE),mu_cond,labels_cond,cols_cond)
+    denslab <- "Probabilité"
+  }
+  if(famille=="binom"){
+    k <- 0:n_bin
+    xx <- k/n_bin
+    cond <- Map(function(m,l,co) list(data=tibble(x=xx,d=dbinom(k,n_bin,m)),label=l,col=co,discret=TRUE),mu_cond,labels_cond,cols_cond)
+    denslab <- "Probabilité"
+  }
+  if(famille=="gamma"){
+    shape <- 1/summary(fit)$dispersion
+    xmax <- qgamma(.998,shape=shape,scale=max(mu_cond)/shape)
+    xx <- seq(.001,xmax,length.out=320)
+    cond <- Map(function(m,l,co) list(data=tibble(x=xx,d=dgamma(xx,shape=shape,scale=m/shape)),label=l,col=co,discret=FALSE),mu_cond,labels_cond,cols_cond)
+    denslab <- "Densité"
+  }
+
+  ry <- range(c(dat$y_aff,grille$lo,grille$hi),na.rm=TRUE)
+  marge <- max(.07*diff(ry),.5)
+  yrange <- ry+c(-marge,marge)
+  if(famille=="binom") yrange <- c(-.04,1.04)
+  if(famille%in%c("poisson","gamma")) yrange[1] <- 0
+
+  xr <- range(unlist(lapply(cond,\(z) z$data$x)))
+  mx <- max(.03*diff(xr),.3)
+  x2range <- xr+c(-mx,mx)
+  if(famille=="binom") x2range <- c(-.04,1.04)
+  if(famille=="poisson") x2range[1] <- -.5
+  if(famille=="gamma") x2range[1] <- 0
+
+  y2max <- 1.12*max(unlist(lapply(cond,\(z) z$data$d)))
+  ylab <- switch(famille,
+    gauss="VD : valeur continue",
+    poisson="VD : décompte",
+    binom="VD : proportion",
+    gamma="VD : valeur continue positive"
+  )
+  x2lab <- switch(famille,
+    gauss="Valeurs possibles de Y",
+    poisson="Valeurs possibles de Y : décompte",
+    binom="Valeurs possibles de Y : proportion",
+    gamma="Valeurs possibles de Y : valeur positive"
+  )
+  nom_plan <- switch(plan,t="<i>t</i>-test indépendant",anova="ANOVA intersujets",ancova="ANCOVA additive")
+  nom_fam <- switch(famille,gauss="Normale",poisson="Poisson",binom="Binomiale",gamma="Gamma")
+  titre <- if(famille=="gauss") nom_plan else paste0(nom_plan," · GLM ",nom_fam)
+
+  list(plan=plan,famille=famille,dat=dat,fit=fit,grille=grille,cond=cond,dr=dr,lev=lev,
+       titre=titre,nom_fam=nom_fam,denslab=denslab,ylab=ylab,x2lab=x2lab,
+       yrange=yrange,x2range=x2range,y2max=y2max)
+}
+
+plans <- c("t","anova","ancova")
+familles <- c("gauss","poisson","binom","gamma")
+obj <- list()
+for(f in familles) for(pl in plans) obj[[paste(f,pl,sep="__")]] <- simuler(pl,f)
+
+p <- plot_ly(source="modeles-residus")
+ntr <- 0L
+blocs <- list()
+layouts <- list()
+
+ajouter_vd <- function(o,cle){
+  vis <- cle=="gauss__t_vd"
+  debut <- ntr+1L
+
+  if(o$plan!="ancova"){
+    g <- o$grille
+    p <<- p |>
+      add_trace(x=c(g$x,rev(g$x)),y=c(g$lo,rev(g$hi)),type="scatter",mode="lines",fill="toself",fillcolor=plotly::toRGB(sombre,.10),line=list(width=0),visible=vis,showlegend=FALSE,hoverinfo="skip") |>
+      add_trace(x=g$x,y=g$fit,type="scatter",mode="lines+markers",visible=vis,showlegend=FALSE,line=list(color=sombre,width=2.6),marker=list(color=sombre,size=6),hovertemplate="μ̂ = %{y:.2f}<extra></extra>")
+    ntr <<- ntr+2L
+
+    cols <- if(o$plan=="t") c(bleu,orange2) else cols3
+    for(i in seq_along(o$lev)){
+      d <- o$dat[o$dat$groupe==o$lev[i],]
+      v <- demi_violon(d$y_aff,i)
+      p <<- p |>
+        add_trace(data=v,x=~x,y=~y,type="scatter",mode="lines",fill="toself",fillcolor=plotly::toRGB(cols[i],.18),line=list(color=cols[i],width=1.1),visible=vis,showlegend=FALSE,hoverinfo="skip") |>
+        add_trace(x=d$x_aff,y=d$y_aff,type="scatter",mode="markers",visible=vis,showlegend=FALSE,marker=list(color=cols[i],size=5.2,opacity=.43),text=rep(o$lev[i],nrow(d)),hovertemplate="<b>%{text}</b><br>Y = %{y:.2f}<extra></extra>")
+      ntr <<- ntr+2L
+    }
+  } else {
+    cols <- cols3
+    for(i in seq_along(o$lev)){
+      d <- o$dat[o$dat$groupe==o$lev[i],]
+      g <- o$grille[o$grille$groupe==o$lev[i],]
+      p <<- p |>
+        add_trace(x=c(g$age,rev(g$age)),y=c(g$lo,rev(g$hi)),type="scatter",mode="lines",fill="toself",fillcolor=plotly::toRGB(cols[i],.10),line=list(width=0),visible=vis,showlegend=FALSE,hoverinfo="skip") |>
+        add_trace(x=g$age,y=g$fit,type="scatter",mode="lines",visible=vis,showlegend=FALSE,line=list(color=cols[i],width=2.6),hovertemplate=paste0("<b>",o$lev[i],"</b><br>Âge = %{x:.0f}<br>μ̂ = %{y:.2f}<extra></extra>")) |>
+        add_trace(x=d$age,y=d$y_aff,type="scatter",mode="markers",visible=vis,showlegend=FALSE,marker=list(color=cols[i],size=5.1,opacity=.38),text=rep(o$lev[i],nrow(d)),hovertemplate="<b>%{text}</b><br>Âge = %{x:.0f}<br>Y = %{y:.2f}<extra></extra>")
+      ntr <<- ntr+3L
+    }
+  }
+
+  for(z in o$cond){
+    mode <- if(z$discret) "lines+markers" else "lines"
+    p <<- p |> add_trace(data=z$data,x=~x,y=~d,xaxis="x2",yaxis="y2",type="scatter",mode=mode,name=z$label,visible=vis,line=list(color=z$col,width=2.4),marker=list(color=z$col,size=4.2),hovertemplate=paste0("<b>",z$label,"</b><br>Y = %{x:.2f}<br>",o$denslab," = %{y:.3f}<extra></extra>"))
+    ntr <<- ntr+1L
+  }
+
+  blocs[[cle]] <<- debut:ntr
+}
+
+ajouter_res <- function(o,cle){
+  lib_res <- if(o$famille=="gauss") "Résidu" else "Résidu quantile"
+  vis <- FALSE
+  debut <- ntr+1L
+
+  if(o$plan!="ancova"){
+    p <<- p |> add_trace(x=c(.65,length(o$lev)+.35),y=c(0,0),type="scatter",mode="lines",visible=vis,showlegend=FALSE,line=list(color=rouge,width=2,dash="dash"),hoverinfo="skip")
+    ntr <<- ntr+1L
+    cols <- if(o$plan=="t") c(bleu,orange2) else cols3
+    for(i in seq_along(o$lev)){
+      d <- o$dat[o$dat$groupe==o$lev[i],]
+      v <- demi_violon(d$rquant,i)
+      p <<- p |>
+        add_trace(data=v,x=~x,y=~y,type="scatter",mode="lines",fill="toself",fillcolor=plotly::toRGB(cols[i],.18),line=list(color=cols[i],width=1.1),visible=vis,showlegend=FALSE,hoverinfo="skip") |>
+        add_trace(x=d$x_aff,y=d$rquant,type="scatter",mode="markers",visible=vis,showlegend=FALSE,marker=list(color=cols[i],size=5.2,opacity=.43),text=rep(o$lev[i],nrow(d)),hovertemplate=paste0("<b>%{text}</b><br>",lib_res," = %{y:.2f}<extra></extra>"))
+      ntr <<- ntr+2L
+    }
+  } else {
+    p <<- p |> add_trace(x=c(20,70),y=c(0,0),type="scatter",mode="lines",visible=vis,showlegend=FALSE,line=list(color=rouge,width=2,dash="dash"),hoverinfo="skip")
+    ntr <<- ntr+1L
+    cols <- cols3
+    for(i in seq_along(o$lev)){
+      d <- o$dat[o$dat$groupe==o$lev[i],]
+      p <<- p |> add_trace(x=d$age,y=d$rquant,type="scatter",mode="markers",visible=vis,showlegend=FALSE,marker=list(color=cols[i],size=5.1,opacity=.40),text=rep(o$lev[i],nrow(d)),hovertemplate=paste0("<b>%{text}</b><br>Âge = %{x:.0f}<br>",lib_res," = %{y:.2f}<extra></extra>"))
+      ntr <<- ntr+1L
+    }
+  }
+
+  xx <- seq(-4,4,length.out=320)
+  p <<- p |>
+    add_trace(x=o$dr$x,y=o$dr$y,xaxis="x2",yaxis="y2",type="scatter",mode="lines",fill="tozeroy",fillcolor=plotly::toRGB(sombre,.10),line=list(color=sombre,width=3),visible=vis,showlegend=FALSE,hovertemplate=paste0(lib_res," = %{x:.2f}<br>Densité = %{y:.3f}<extra></extra>")) |>
+    add_trace(x=xx,y=dnorm(xx),xaxis="x2",yaxis="y2",type="scatter",mode="lines",name="N(0,1) attendue",visible=vis,line=list(color=rouge,width=2.4,dash="dash"),hoverinfo="skip")
+  ntr <<- ntr+2L
+  blocs[[cle]] <<- debut:ntr
+}
+
+layout_vd <- function(o){
+  facteur <- o$plan!="ancova"
+  xa <- if(facteur){
+    list(domain=c(.02,.55),range=c(.55,length(o$lev)+.45),tickmode="array",tickvals=seq_along(o$lev),ticktext=o$lev,title=list(text=paste0("<b>",if(o$plan=="t") "Sexe" else "Méthode","</b>"),font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,showgrid=FALSE,zeroline=FALSE)
+  } else {
+    list(domain=c(.02,.55),range=c(18,72),tickmode="array",tickvals=seq(20,70,10),title=list(text="<b>Âge (années)</b>",font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,showgrid=FALSE,zeroline=FALSE)
+  }
+
+  droite <- if(o$plan=="ancova") "<b>Y | X : trois groupes à 45 ans</b>" else "<b>Distributions conditionnelles Y | X</b>"
+
+  list(
+    xaxis=xa,
+    yaxis=list(domain=c(.18,.75),range=o$yrange,title=list(text=paste0("<b>",o$ylab,"</b>"),font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,zeroline=FALSE,showgrid=TRUE,gridcolor="rgba(54,69,74,.15)"),
+    xaxis2=list(domain=c(.64,.99),anchor="y2",range=o$x2range,title=list(text=paste0("<b>",o$x2lab,"</b>"),font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,zeroline=FALSE,showgrid=FALSE),
+    yaxis2=list(domain=c(.18,.75),anchor="x2",range=c(0,o$y2max),title=list(text=paste0("<b>",o$denslab,"</b>"),font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,zeroline=FALSE,showgrid=TRUE,gridcolor="rgba(54,69,74,.15)"),
+    annotations=list(
+      list(x=.5,y=.815,xref="x domain",yref="paper",text=paste0("<b>",o$titre," : VD et modèle</b>"),showarrow=FALSE,font=list(size=12.3,color=sombre)),
+      list(x=.5,y=.815,xref="x2 domain",yref="paper",text=droite,showarrow=FALSE,font=list(size=12.3,color=sombre))
+    )
+  )
+}
+
+layout_res <- function(o){
+  lib_res <- if(o$famille=="gauss") "Résidu" else "Résidu quantile"
+  facteur <- o$plan!="ancova"
+  xa <- if(facteur){
+    list(domain=c(.02,.55),range=c(.55,length(o$lev)+.45),tickmode="array",tickvals=seq_along(o$lev),ticktext=o$lev,title=list(text=paste0("<b>",if(o$plan=="t") "Sexe" else "Méthode","</b>"),font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,showgrid=FALSE,zeroline=FALSE)
+  } else {
+    list(domain=c(.02,.55),range=c(18,72),tickmode="array",tickvals=seq(20,70,10),title=list(text="<b>Âge (années)</b>",font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,showgrid=FALSE,zeroline=FALSE)
+  }
+
+  lim <- max(3.5,min(5,max(abs(o$dat$rquant),na.rm=TRUE)*1.08))
+  ymax <- 1.12*max(c(o$dr$y,dnorm(0)))
+
+  list(
+    xaxis=xa,
+    yaxis=list(domain=c(.18,.75),range=c(-lim,lim),title=list(text=paste0("<b>",lib_res,"</b>"),font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,zeroline=FALSE,showgrid=TRUE,gridcolor="rgba(54,69,74,.15)"),
+    xaxis2=list(domain=c(.64,.99),anchor="y2",range=c(-4,4),title=list(text=paste0("<b>",lib_res,"</b>"),font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,zeroline=FALSE,showgrid=FALSE),
+    yaxis2=list(domain=c(.18,.75),anchor="x2",range=c(0,ymax),title=list(text="<b>Densité</b>",font=list(size=11.5)),tickfont=list(size=9.2),fixedrange=TRUE,zeroline=FALSE,showgrid=TRUE,gridcolor="rgba(54,69,74,.15)"),
+    annotations=list(
+      list(x=.5,y=.815,xref="x domain",yref="paper",text=paste0("<b>",o$titre," : résidus autour du modèle</b>"),showarrow=FALSE,font=list(size=12.3,color=sombre)),
+      list(x=.5,y=.815,xref="x2 domain",yref="paper",text=if(o$famille=="gauss") "<b>Distribution des résidus</b>" else "<b>Distribution des résidus quantiles</b>",showarrow=FALSE,font=list(size=12.3,color=sombre))
+    )
+  )
+}
+
+for(f in familles){
+  for(pl in plans){
+    o <- obj[[paste(f,pl,sep="__")]]
+    cle_vd <- paste(f,paste0(pl,"_vd"),sep="__")
+    cle_res <- paste(f,paste0(pl,"_res"),sep="__")
+    ajouter_vd(o,cle_vd)
+    ajouter_res(o,cle_res)
+    layouts[[cle_vd]] <- layout_vd(o)
+    layouts[[cle_res]] <- layout_res(o)
+  }
+}
+
+modeles <- c("t_vd","t_res","anova_vd","anova_res","ancova_vd","ancova_res")
+lib_modeles <- c("VD · t-test","Résidus · t-test","VD · ANOVA","Résidus · ANOVA","VD · ANCOVA","Résidus · ANCOVA")
+familles_ui <- c("gauss","poisson","binom","gamma")
+lib_familles <- c("Normale","Poisson","Binomiale","Gamma")
+
+boutons_modeles <- unname(Map(function(k,l) list(label=l,method="skip",args=list()),modeles,lib_modeles))
+boutons_familles <- unname(Map(function(k,l) list(label=l,method="skip",args=list()),familles_ui,lib_familles))
+init <- layouts[["gauss__t_vd"]]
+
+p <- p |> layout(
+  autosize=FALSE,width=850,height=385,dragmode=FALSE,hovermode="closest",
+  font=list(family="CMU Serif",color=sombre),
+  paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",
+  xaxis=init$xaxis,yaxis=init$yaxis,xaxis2=init$xaxis2,yaxis2=init$yaxis2,annotations=init$annotations,
+  updatemenus=list(
+    list(type="buttons",direction="right",active=0,showactive=TRUE,x=.5,xanchor="center",y=1.245,yanchor="top",font=list(size=7.8,color=sombre),bgcolor="rgba(255,255,255,1)",bordercolor=orange2,borderwidth=1,pad=list(r=1,t=0),buttons=boutons_modeles),
+    list(type="buttons",direction="right",active=0,showactive=TRUE,x=.5,xanchor="center",y=1.045,yanchor="top",font=list(size=8.1,color=sombre),bgcolor="rgba(255,255,255,1)",bordercolor=bleu,borderwidth=1,pad=list(r=1,t=0),buttons=boutons_familles)
+  ),
+  legend=list(orientation="h",x=.5,xanchor="center",y=-.035,yanchor="top",font=list(size=7.8),bgcolor="rgba(255,255,255,.88)"),
+  margin=list(l=64,r=14,t=82,b=48)
+) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+blocs_json <- jsonlite::toJSON(blocs,auto_unbox=TRUE)
+layouts_json <- jsonlite::toJSON(layouts,auto_unbox=TRUE,null="null",digits=NA)
+
+js <- sprintf("
+function(el,x){
+  var blocs=%s, layouts=%s;
+  var currentModel='t_vd', currentFamily='gauss';
+  var modelLabels={
+    'VD · t-test':'t_vd',
+    'Résidus · t-test':'t_res',
+    'VD · ANOVA':'anova_vd',
+    'Résidus · ANOVA':'anova_res',
+    'VD · ANCOVA':'ancova_vd',
+    'Résidus · ANCOVA':'ancova_res'
+  };
+  var familyLabels={
+    'Normale':'gauss',
+    'Poisson':'poisson',
+    'Binomiale':'binom',
+    'Gamma':'gamma'
+  };
+
+  function applyState(){
+    var key=currentFamily+'__'+currentModel;
+    var ids=blocs[key] || [];
+    var visible=new Array(el.data.length).fill(false);
+    ids.forEach(function(i){visible[i-1]=true;});
+    Plotly.restyle(el,{visible:visible},Array.from({length:el.data.length},function(_,i){return i;}));
+    Plotly.relayout(el,layouts[key]);
+  }
+
+  el.on('plotly_buttonclicked',function(ev){
+    var lab=ev.button.label;
+    if(modelLabels[lab]!==undefined) currentModel=modelLabels[lab];
+    if(familyLabels[lab]!==undefined) currentFamily=familyLabels[lab];
+    applyState();
+  });
+}
+",blocs_json,layouts_json)
+
+htmlwidgets::onRender(p,js)
+```
+:::
+
+## Exemple du TMT {.smaller}
+
+Lors d’un stage de M2 neuropsychologie clinique, vous participez à l’aide au diagnostic d’une population adulte. Un patient se présente à la consultation mémoire, accompagné de son épouse. Elle rapporte des changements de personnalité et des troubles qui semblent atteindre les fonctions exécutives.
+
+Le bilan comprend le **Trail Making Test** (TMT). Ses deux parties évaluent respectivement la vitesse de traitement de l’information et la flexibilité mentale.
+
+## Le Trail Making Test {.tmt-slide}
+
+:::: {.tmt-pages}
+::: {.tmt-page}
+![](figs_importees/cm01_TMT_A.jpg)
+:::
+::: {.tmt-page}
+![](figs_importees/cm01_TMT_B.jpg)
+:::
+::::
+
+## Les temps de réaction sont bornés gauche {.smaller}
+
+::::: columns
+::: {.column width="57%"}
+Dans la partie A, le patient relie les chiffres dans l’ordre numérique. Dans la partie B, il alterne chiffres et lettres.
+
+Dans les deux cas, on mesure un **temps de réaction**. Cette variable possède un zéro naturel et est donc une variable de type rapport.
+
+**À cause de cette borne gauche**, on dit que les observations tendent à s'écrabouiller (elles sont *squashed*) contre la borne. De plus, elles forment une longue queue à droite.
+
+Ce faisant, les temps de réaction suivent rarement une loi normale mais plutôt une loi Gamma (ou inverse-gaussienne, ou Tweedie). 
+:::
+
+::: {.column width="43%"}
+```{r}
+#| label: fig-tr-borne
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Distribution typique des temps de réaction, simulés ici par une loi $\Gamma$ (Gamma).
+#| fig-width: 4
+#| fig-height: 3.1
+#| fig-dpi: 350
+#| out-width: "100%"
+
+x_tr <- seq(0, 8, length.out = 500)
+densite_tr <- data.frame(x = x_tr, y = dgamma(x_tr, shape = 2.1, rate = 0.75))
+
+ggplot(densite_tr, aes(x, y)) +
+  geom_area(fill = couleurs$bleu, alpha = 0.55) +
+  geom_line(colour = couleurs$bleu, linewidth = 1) +
+  labs(x = "Temps de réaction", y = "Densité") +
+  theme(axis.text.y = element_blank())
+```
+:::
+:::::
+
+## Normes percentiles du TMT {.smaller}
+<div style="font-size:0.97em;">
+Puisque la distribution des temps de réaction s’éloigne très fortement d’une loi normale, en clinique on utilise des normes percentiles pour situer un patient dans une population de référence. 
+
+Un percentile indique la proportion de la population de référence qui obtient une valeur $\leq$ à une valeur donnée, ce qui fournit un rang pour chaque observation. Par exemple, le $C_{25}$ correspond à une valeur atteinte ou dépassée par 75 % de cette population. Exemple des normes GREFEX pour le TMT :
+
+| Centile      | **$C_5$** | $C_{10}$ | $C_{25}$ | $C_{50}$ | $C_{75}$ | $C_{90}$ | $C_{95}$ |
+|:--------------:|:------:|:---------:|:---------:|:---------:|:---------:|:---------:|:---------:|
+| Partie A (s) |    66 |       53 |       43 |       31 |       27 |       23 |       20 |
+| Partie B (s) |   125 |      110 |       84 |       69 |       55 |       47 |       43 |
+| B - A (s)    |    81 |       66 |       49 |       30 |       22 |       15 |       12 |
+
+On souhaite effectuer un test unilatéral à $5\%$ de risques de faux positifs, pour cela on utilise la statistique critique du $C_5$.
+Un temps de 50 s en partie A se situe entre $C_{25}$ et $C_{10}$ (non significatif). Un temps de 140 s en partie B se situe **au-delà de $C_5$** ($p < 5\%$ i.e., $p < .05$ → significatif). Un écart **B - A de 90 s se situe également au-delà de $C_5$** et suggère un trouble **significatif** de flexibilité mentale.
+
+En clinique, les seuils du $C_5$, $C_{2.5}$ sont les plus utilisés, leur équivalent en loi $z$ est respectivement de $-1.645$ et de $-1.96$. Ces seuils correspondent à un seuil $\alpha$ de risque de faux positif (erreur de type I).
+
+</div>
+
+## Situer un patient dans une distribution {.titre-tres-long}
+
+::: {.graphique-r .plotly-stable}
+```{r}
+#| label: fig-percentile-patient
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Percentile d'une observation individuelle selon une distribution normative fictive de temps de réaction.
+#|   <span class="note-figure"><em>Note.</em> La barre représente le temps de réaction du patient, que le curseur permet de faire varier. Son rang percentile correspond au %age de la population présentant un TR ≤ au sien, soit l’aire sous la courbe (AUC) à gauche de la barre, multipliée par 100. Au 95ème percentile, le patient répond donc plus lentement que 95 % de cette population. Les hachures délimitent les 5 % de temps de réaction les plus longs, au-delà du 95ème percentile.</span>
+#| fig-width: 9.4
+#| fig-height: 3.5
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+seuil_95 <- qgamma(.95, shape=2.1, rate=.75)
+densite_tr$percentile <- pgamma(densite_tr$x, shape=2.1, rate=.75)
+zone_5_sup <- rbind(data.frame(x=seuil_95, y=dgamma(seuil_95, shape=2.1, rate=.75), percentile=.95), densite_tr[densite_tr$x>seuil_95,])
+observations_slider <- sort(unique(c(seq(min(densite_tr$x), max(densite_tr$x), by=.05), seuil_95)))
+format_fr <- function(x, n=2) sub("\\.",",", sprintf(paste0("%.", n,"f"), x))
+
+annotation_etat <- function(observation) {
+  percentile <- 100*pgamma(observation, shape=2.1, rate=.75)
+  placer_gauche <- observation>mean(range(densite_tr$x))
+  list(x=observation, y=max(densite_tr$y)*.48, xref="x", yref="y",
+    text=paste0("<b>Observation : ", format_fr(observation)," s</b><br>Score au moins aussi extrême<br>que ", format_fr(percentile,1)," % de la population"),
+    showarrow=FALSE, xanchor=ifelse(placer_gauche,"right","left"), xshift=ifelse(placer_gauche,-12,12),
+    font=list(color=couleurs$orange, size=13), bgcolor="rgba(255,255,255,.94)",
+    bordercolor=couleurs$orange, borderwidth=1.5, borderpad=6)
+}
+
+forme_etat <- function(observation) list(
+  list(type="line", xref="x", yref="paper", x0=observation, x1=observation, y0=0, y1=1,
+    layer="above", line=list(color=couleurs$orange, width=4))
+)
+
+etapes <- lapply(observations_slider,\(observation)
+  list(method="relayout", label=format_fr(observation),
+    args=list(list(annotations=list(annotation_etat(observation)), shapes=forme_etat(observation)))))
+  
+p <- plot_ly(source="percentile-patient") |>
+  add_trace(data=densite_tr, x=~x, y=~y, type="scatter", mode="lines", fill="tozeroy",
+    fillcolor=plotly::toRGB(couleurs$bleu,.55), line=list(color=couleurs$bleu, width=3),
+    hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(data=zone_5_sup, x=~x, y=~y, type="scatter", mode="lines", fill="tozeroy",
+    fillcolor="rgba(255,255,255,0)",
+    fillpattern=list(shape="/", fgcolor=couleurs$orange, bgcolor="rgba(255,255,255,0)", size=8, solidity=.25),
+    line=list(width=0), hoverinfo="skip", showlegend=FALSE) |>
+  layout(autosize=FALSE, width=850, height=335, dragmode=FALSE,
+    xaxis=list(domain=c(.01,.99), range=range(densite_tr$x),
+      title=list(text="<b>Temps de réaction (sec.)</b>", font=list(size=13), standoff=3),
+      tickfont=list(size=10), fixedrange=TRUE, showgrid=FALSE, zeroline=FALSE),
+    yaxis=list(domain=c(.20,.95), range=c(0, max(densite_tr$y)*1.06),
+      title=list(text="<b>Densité</b>", font=list(size=13), standoff=3),
+      fixedrange=TRUE, showgrid=FALSE, showticklabels=FALSE, zeroline=FALSE),
+    annotations=list(annotation_etat(seuil_95)), shapes=forme_etat(seuil_95),
+    sliders=list(list(
+      active=which.min(abs(observations_slider-seuil_95))-1L,
+      x=.14, len=.72, y=-.18,
+      currentvalue=list(prefix="Observation = ", suffix=" s", xanchor="center",
+        font=list(size=12, color=couleurs$orange)),
+      font=list(size=1, color="rgba(0,0,0,0)"),
+      ticklen=0, minorticklen=0, tickwidth=0,
+      pad=list(t=12), transition=list(duration=0), steps=etapes)),
+    margin=list(l=65, r=25, t=12, b=85, pad=0)) |>
+  config(displayModeBar=FALSE, responsive=FALSE)
+
+p
+```
+:::
+
+## La Loi des Grands Nombres (LGN)
+
+Suivons un échantillon auquel on ajoute progressivement des observations.
+
+Chaque nouvelle observation modifie sa moyenne. Lorsque la taille $N$ de
+l’échantillon augmente, les grandes fluctuations de l'estimation de $\mu$ deviennent cependant de plus en plus rares : l'estimation est d'autant plus stable et précise que $N$ est grand. La moyenne observée tend alors à se stabiliser autour de la moyenne de la population $\mu$.
+
+## Le Théorème Central Limite (TCL) 
+
+Imaginons maintenant de nombreux échantillons indépendants, tous de même taille. Leurs moyennes forment une **distribution d’échantillonnage** (i.e., l'ensemble des valeurs que prendrais leur moyenne $m$ respective si l'on répétais la même expérience sur la même population une infinité de fois).
+
+Lorsque la taille des échantillons augmente, cette distribution d'échantillonnage devient de plus en plus symétrique et se rapproche d’une loi $\mathcal{N}$, **même si les observations individuelles suivent une loi non normale, bornée ou asymétrique** ! Elle reste centrée sur la moyenne $\mu$ de la population et se resserre à mesure que notre précision sur l'estimation de $\mu$ augmente (i.e., à mesure que l’erreur standard $se$ de l'estimation diminue).
+
+## Diminution de l’effet des bornes sous LGN et TCL {.smaller .titre-tres-long}
+
+Avec une variable de type rapport, les observations et leurs moyennes $m$ restent toujours supérieures ou égales au **zéro naturel**. Agréger des observations en calculant leur moyenne **ne supprimera donc jamais cette borne**.
+
+En revanche, la moyenne de la distribution d'échantillonnage reste au même endroit tandis que notre précision sur l'estimation de la moyenne de population $\mu$ augmente. 
+
+Si l'on mesure la distance entre la borne zéro et la moyenne estimée en unités d'erreur standard $se$, alors la borne zéro s’éloigne progressivement de la moyenne.
+
+**Résultat** : La distribution devient moins asymétrique et la masse négative produite par l’approximation normale devient négligeable.
+
+## Illustration de la LGN et du TCL {.smaller .titre-tres-long}
+
+::: {.graphique-r .plotly-stable style="top:80px;bottom:14px;--plotly-height:385px;"}
+```{r}
+#| label: fig-lgn-tcl-interactif
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Effet de la taille d’échantillon sur la moyenne cumulée et sur sa distribution d’échantillonnage.
+#|   <span class="note-figure"><em>Note.</em> La distribution des observations reste asymétrique et bornée à zéro. À gauche, la moyenne cumulée se stabilise autour de μ lorsque N augmente (LGN). À droite, la distribution d’échantillonnage décrit les moyennes obtenues sur des échantillons de même taille N. Elle se resserre autour de μ et se rapproche de l’approximation normale orange (TCL). La zone rouge représente les moyennes négatives impossibles auxquelles cette approximation attribue une probabilité, qui devient négligeable lorsque N augmente.</span>
+#| fig-width: 9.4
+#| fig-height: 4.05
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+mu_cible <- 2.8; forme <- 1; taux <- forme/mu_cible; mu <- forme/taux; sigma <- sqrt(forme)/taux
+tailles <- c(1:50, seq(55,100,5), seq(110,200,10)); n_initial <- 5L; indice_initial <- match(n_initial, tailles); n_max <- max(tailles)
+
+etat_rng <- if (exists(".Random.seed", envir=.GlobalEnv, inherits=FALSE)) get(".Random.seed", envir=.GlobalEnv) else NULL
+set.seed(20260902); observations <- rgamma(n_max, shape=forme, rate=taux); moyennes_cumulees <- cumsum(observations)/seq_len(n_max)
+if (is.null(etat_rng)) rm(".Random.seed", envir=.GlobalEnv) else assign(".Random.seed", etat_rng, envir=.GlobalEnv); rm(etat_rng)
+
+grille <- seq(-4,11, length.out=1800)
+densites_exactes <- lapply(tailles,\(n_i) dgamma(grille, shape=n_i*forme, rate=n_i*taux))
+densites_normales <- lapply(tailles,\(n_i) dnorm(grille, mean=mu, sd=sigma/sqrt(n_i)))
+densites_negatives <- lapply(densites_normales,\(d) ifelse(grille<0, d, NA_real_))
+erreurs_standard <- sigma/sqrt(tailles); distances_borne <- mu/erreurs_standard; masses_negatives <- pnorm(-distances_borne)
+max_densites <- vapply(seq_along(tailles),\(i) max(densites_exactes[[i]], densites_normales[[i]]), numeric(1))
+borne_y_lgn <- max(c(moyennes_cumulees, mu))*1.10; borne_y_tcl <- max_densites[[indice_initial]]*1.08
+
+format_fr <- function(x, chiffres=2) sub("\\.",",", sprintf(paste0("%.", chiffres,"f"), x))
+format_pourcentage <- function(p) if (100*p<.01) "&lt; 0,01 %" else paste0(format_fr(100*p)," %")
+
+formes_etat <- function(n_i) {
+  maximum_x <- max(10, n_i)+.5
+  list(list(type="rect", xref="x2", yref="paper", x0=-4, x1=0, y0=0, y1=1, fillcolor=plotly::toRGB(red,.06), line=list(width=0), layer="below"),
+       list(type="line", xref="x", yref="y", x0=.5, x1=maximum_x, y0=mu, y1=mu, line=list(color=orange, width=3, dash="dash")),
+       list(type="line", xref="x2", yref="paper", x0=0, x1=0, y0=0, y1=1, line=list(color=red, width=3)))
+}
+
+annotations_etat <- function(i) {
+  n_i <- tailles[[i]]; maximum_x <- max(10, n_i)+.5
+  information <- paste0("<b>Approximation normale</b> : N(μ = ", format_fr(mu)," sec. ; σ = SE = ", format_fr(erreurs_standard[[i]])," sec.)",
+                        "<br>zéro situé à <b>", format_fr(distances_borne[[i]])," SE</b> de μ &nbsp;·&nbsp; masse négative : <b>", format_pourcentage(masses_negatives[[i]]),"</b>")
+  list(list(x=.5, y=1.20, xref="x domain", yref="paper", text="<b>LGN</b><br>Une moyenne qui se stabilise", showarrow=FALSE, xanchor="center", yanchor="bottom", align="center", width=245, font=list(size=14)),
+       list(x=.5, y=1.20, xref="x2 domain", yref="paper", text="<b>TCL</b><br>Distribution des moyennes", showarrow=FALSE, xanchor="center", yanchor="bottom", align="center", width=245, font=list(size=14)),
+       list(x=max(1,.70*maximum_x), y=mu, xref="x", yref="y", text=paste0("μ = ", format_fr(mu)," sec."), showarrow=FALSE, yshift=13, font=list(size=13, color=orange), bgcolor="rgba(255,255,255,.90)", borderpad=3),
+       list(x=-.18, y=.82, xref="x2", yref="paper", text="Valeurs brutes<br>impossibles", showarrow=FALSE, xanchor="right", yanchor="middle", align="center", width=105, font=list(size=11.5, color=red), bgcolor="rgba(255,255,255,.94)", bordercolor=red, borderwidth=1.5, borderpad=4),
+       list(x=-.15, y=.47, xref="x2 domain", yref="paper", text="Densité", textangle=-90, showarrow=FALSE, xanchor="center", yanchor="middle", font=list(size=14)),
+       list(x=.5, y=-.60, xref="paper", yref="paper", text=information, showarrow=FALSE, xanchor="center", yanchor="middle", align="center", width=650, font=list(size=10.5, color="#444"), bgcolor="rgba(255,255,255,.97)", bordercolor="#bbb", borderwidth=1, borderpad=4))
+}
+
+donnees_etat <- function(i) {
+  n_i <- tailles[[i]]
+  list(x=list(as.list(seq_len(n_i)), list(n_i), grille, grille, grille),
+       y=list(as.list(moyennes_cumulees[seq_len(n_i)]), list(moyennes_cumulees[[n_i]]), densites_exactes[[i]], densites_negatives[[i]], densites_normales[[i]]))
+}
+
+etapes <- lapply(seq_along(tailles),\(i) {
+  n_i <- tailles[[i]]; maximum_x <- max(10, n_i)+.5
+  list(method="update", label=as.character(n_i), args=list(donnees_etat(i),
+       list(`xaxis.range`=c(.5, maximum_x),`yaxis2.range`=c(0,1.08*max_densites[[i]]), shapes=formes_etat(n_i), annotations=annotations_etat(i)),0:4))
+})
+
+p <- plot_ly(source="lgn-tcl-interactif") |>
+  add_trace(x=seq_len(n_initial), y=moyennes_cumulees[seq_len(n_initial)], type="scatter", mode="lines", xaxis="x", yaxis="y", line=list(color=blue, width=4), connectgaps=FALSE, hovertemplate="N = %{x}<br>Moyenne cumulée = %{y:.2f} sec.<extra></extra>", showlegend=FALSE) |>
+  add_trace(x=n_initial, y=moyennes_cumulees[[n_initial]], type="scatter", mode="markers", xaxis="x", yaxis="y", marker=list(color=blue, size=12, line=list(color="white", width=2)), hovertemplate="N = %{x}<br>Moyenne actuelle = %{y:.2f} sec.<extra></extra>", showlegend=FALSE) |>
+  add_trace(x=grille, y=densites_exactes[[indice_initial]], type="scatter", mode="lines", xaxis="x2", yaxis="y2", name="Loi exacte", line=list(color=blue, width=3), fill="tozeroy", fillcolor=plotly::toRGB(blue,.18), hovertemplate="Moyenne = %{x:.2f} sec.<br>Densité exacte = %{y:.3f}<extra></extra>") |>
+  add_trace(x=grille, y=densites_negatives[[indice_initial]], type="scatter", mode="lines", xaxis="x2", yaxis="y2", line=list(width=0), fill="tozeroy", fillcolor=plotly::toRGB(red,.40), hoverinfo="skip", connectgaps=FALSE, showlegend=FALSE) |>
+  add_trace(x=grille, y=densites_normales[[indice_initial]], type="scatter", mode="lines", xaxis="x2", yaxis="y2", name="Approximation normale", line=list(color=orange, width=3, dash="dash"), hovertemplate="Moyenne = %{x:.2f} sec.<br>Densité normale = %{y:.3f}<extra></extra>") |>
+  layout(width=850, height=385, autosize=FALSE, dragmode=FALSE, hovermode="closest",
+         xaxis=list(domain=c(0,.45), range=c(.5, max(10, n_initial)+.5), title=list(text="Nombre d’observations accumulées", standoff=8), fixedrange=TRUE, zeroline=FALSE),
+         yaxis=list(domain=c(0,1), range=c(0, borne_y_lgn), title=list(text="Moyenne cumulée (sec.)", standoff=6), fixedrange=TRUE, zeroline=FALSE, automargin=TRUE),
+         xaxis2=list(domain=c(.60,1), range=c(-4,11), title=list(text="Moyenne d’échantillon (sec.)", standoff=8), tickvals=c(-3,0,3,6,9), fixedrange=TRUE, zeroline=FALSE),
+         yaxis2=list(domain=c(0,1), anchor="x2", range=c(0, borne_y_tcl), showticklabels=FALSE, fixedrange=TRUE, zeroline=FALSE),
+         legend=list(orientation="h", x=.80, xanchor="center", y=1, yanchor="bottom", font=list(size=10.5), bgcolor="rgba(255,255,255,.82)"),
+         shapes=formes_etat(n_initial), annotations=annotations_etat(indice_initial),
+         sliders=list(list(active=indice_initial-1L, x=.18, len=.64, y=-.24, yanchor="top", bgcolor="rgba(190,190,190,.45)", activebgcolor=blue, bordercolor="#888", borderwidth=1,
+                           currentvalue=list(prefix="Taille : N = ", xanchor="center", font=list(size=11.5, color=orange)),
+                           font=list(size=1, color="rgba(0,0,0,0)"), tickcolor="rgba(0,0,0,0)", ticklen=0, minorticklen=0, tickwidth=0, pad=list(t=4, b=0), transition=list(duration=0), steps=etapes)),
+         margin=list(l=70, r=25, t=78, b=132, pad=0)) |>
+  config(displayModeBar=FALSE, responsive=FALSE)
+
+p
+```
+:::
+
+## Les petits échantillons
+
+Par contraintes de temps de passation, de difficultés de recrutement ou encore en raison de contraintes financières, il est rarement possible d'observer la totalité d'une population parente. L’inférence statistique repose donc nécessairement sur les données recueillies dans un **échantillon**.
+
+> *Let’s deal with it!*
+
+## La correction de Bessel {.smaller}
+
+Dans son livre *Fundamenta Astronomiae* (1818), Friedrich Bessel cherche à tirer des conclusions générales sur le mouvement des astres à partir d’observations portant sur pas moins de 3 222 étoiles ! Pour ne pas calculer à la main des équations énormes il décide alors de travailler à l'aide de multiples sous-échantillons.
+
+Seulement, il remarque alors que les sous-échantillons sous-estiment systématiquement la variance de son méta-échantillon lorsqu’ils utilisent leur propre moyenne. On dit que ces estimations sont **biaisées** car leur moyenne diffère de la vraie valeur que l'on aurait obtenue en calculant d'emblée sur l'ensemble du méta-échantillon.
+
+→ La variance est un estimateur biaisé car la moyenne des variances des sous-échantillon ne correspond pas (et est inférieure) à la variance du méta-échantillon. Il nous faut donc corriger la variance estimée sur l'échantillon pour estimer celle de la population.
+
+Bessel propose alors une correction simple, mais efficace, qui reste aujourd'hui encore au cœur même des statistiques inférentielles.
+
+*Nota* : Le principe de cette correction se généralise de l’échantillon à la population, et du calcul d'une variance à celui d'une MSE.
+
+## Un ddl (param. libre) est utilisé pour estimer la moyenne {.smaller .titre-tres-long}
+
+<div style="font-size:0.82em;">
+L’écart-type non-corrigé $s$ et sa version corrigée $\hat\sigma$ s'écrivent respectivement :
+
+$$
+s = \sqrt{
+  \frac{\displaystyle\sum_{i=1}^{n}(y_i-m)^2}
+       {n\;\scriptstyle}
+}
+\qquad \qquad \qquad
+\hat\sigma = \sqrt{
+  \frac{\displaystyle\sum_{i=1}^{n}(y_i-m)^2}
+       {n-1\;\scriptstyle\searrow}
+}
+\quad {\Huge\nearrow}
+$$
+*Note*. Les flèches rappellent ici simplement que si le dénominateur diminue alors la fraction totale augmente. Ceci relève l'estimation des valeurs d'écart-type et de variance pour la population. $y_i$ : une observation indépendante du participant $i$, $m$ la moyenne, $n$ le nombre total d'observation, $\hat\sigma$ l'écart-type corrigé = estimation ($\hat \space$) de l'écart-type populationnel.
+
+La moyenne $m$ est un **paramètre libre** : autrement dit, on cherche aussi à estimer sa valeur dans la population et plusieurs valeurs sont possibles pour celle-ci. On dit que ce paramètre libre nous **consomme un degré de liberté résiduel : ddl résiduel = $n$ observations - $p$ paramètres libres**.
+
+Le principe généralisé de la correction de Bessel consiste à soustraire ce paramètre libre aux observations indépendantes dont on dispose : cela nous donne notre nombre de ddl résiduels. Si l'on a qu'un seul paramètre libre (e.g., la moyenne dans un $z$-score ou un *one-sample* $t$-test) alors on a $n-1$ ddl résiduels. 
+
+La correction de Bessel augmente l’estimation de la variance, surtout lorsque $n$ est petit. Son effet diminue à mesure que l’échantillon grandit. Mais en pratique, cela suffit généralement à relever l’estimation effectuée pour la variance vers sa valeur populationnelle.
+
+</div>
+
+## Illustration des ddl (à apprendre) {.smaller .titre-tres-long}
+
+::: {.graphique-r .plotly-stable .plotly-ddl}
+```{r}
+#| label: fig-ddl-biais-frequence-base
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   <span style="font-size:12px !important;line-height:1.14 !important;">Construction progressive d’un modèle, du <i>one-sample</i> $t$-test à l’ANOVA factorielle $2 \times 2$.</span>
+#|   <span class="note-figure"><em>Note.</em> Les 40 observations forment quatre cellules expérimentales de 10 participants. Les segments rouges représentent les résidus et les courts tirets noirs les moyennes de cellule. Avec $n$ observations et $p$ paramètres libres, le modèle possède $n-p$ degrés de liberté résiduels. À partir de 3 paramètres libres : bleu = avec contrainte de temps de réponse, orange = sans contrainte. Notez que <b>l'interaction est une différence de différences.</b></span>
+#| fig-width: 9.4
+#| fig-height: 3.33
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+bleu <- "#2C7FB8"; orange <- "#D97706"; rouge <- "#D1495B"; sombre <- "#263442"
+coef_initiaux <- c(mu=52, etudes=-11, temps=20, interaction=8); n_cellule <- 10L; decalage_cellule <- .085
+residus_cellules <- list(c(-12,-9,-6,-4,-2,1,3,6,10,13), c(-10,-7,-5,-3,-1,0,2,5,8,11), c(-14,-10,-7,-4,-1,1,4,7,10,14), c(-11,-8,-6,-3,-1,1,3,6,8,11))
+donnees <- data.frame(etudes=rep(c(-.5,.5,-.5,.5), each=n_cellule), temps=rep(c(-.5,-.5,.5,.5), each=n_cellule), niveau=rep(c("Licence","Master","Licence","Master"), each=n_cellule), condition=rep(c("Sans pression","Sans pression","Moins de 4 sec.","Moins de 4 sec."), each=n_cellule), residu=unlist(residus_cellules)); donnees$interaction <- donnees$etudes*donnees$temps
+etat_rng <- if(exists(".Random.seed", envir=.GlobalEnv, inherits=FALSE)) get(".Random.seed", envir=.GlobalEnv) else NULL
+set.seed(20260806); donnees$jitter <- runif(nrow(donnees),-.035,.035); donnees$jitter_global <- runif(nrow(donnees),-.28,.28)
+if(is.null(etat_rng)) rm(".Random.seed", envir=.GlobalEnv) else assign(".Random.seed", etat_rng, envir=.GlobalEnv); rm(etat_rng)
+
+n <- nrow(donnees)
+etiquettes <- c("1 paramètre : Moyenne seule (b<sub>0</sub>)","2 paramètres : + Études (b<sub>1</sub>)","3 paramètres : + Temps (b<sub>2</sub>)","4 paramètres : + Interaction (b<sub>3</sub>)")
+modeles <- c("<i>One-sample t</i>-test ou <i>z</i>-test","<i>t</i>-test à 2 échantillons","ANOVA 2 × 2 additive (i.e., sans interaction)","ANOVA factorielle 2 × 2 avec interaction")
+equations <- c("ŷ = <i>b</i><sub>0</sub>","ŷ = <i>b</i><sub>0</sub> + <i>b</i><sub>1</sub>X<sub>études</sub>","ŷ = <i>b</i><sub>0</sub> + <i>b</i><sub>1</sub>X<sub>études</sub> + <i>b</i><sub>2</sub>X<sub>temps</sub>","ŷ = <i>b</i><sub>0</sub> + <i>b</i><sub>1</sub>X<sub>études</sub> + <i>b</i><sub>2</sub>X<sub>temps</sub><br>+ <i>b</i><sub>3</sub>X<sub>études</sub>X<sub>temps</sub>")
+
+annotations_etat <- function(etape) list(
+  list(x=1.26, y=1.23, xref="paper", yref="paper", text="<b>Construction progressive du modèle</b>", showarrow=FALSE, xanchor="center", yanchor="middle", font=list(size=11.5, color=sombre)),
+  list(x=.45, y=1.15, xref="paper", yref="paper", text=paste0("<b>", modeles[[etape]],"</b><br>", equations[[etape]],"<br><b>ddl résiduels = ", n," − ", etape," = ", n-etape,"</b>"), showarrow=FALSE, xanchor="center", yanchor="middle", align="center", width=470, font=list(size=8.5, color=sombre), bgcolor="#f6f6f6", bordercolor="#cccccc", borderwidth=1, borderpad=3)
+)
+
+calcul_etat <- function(etape, coefs=coef_initiaux){
+  p_libres <- etape; mu <- unname(coefs[["mu"]]); e <- if(p_libres>=2) unname(coefs[["etudes"]]) else 0; t <- if(p_libres>=3) unname(coefs[["temps"]]) else 0; interaction <- if(p_libres>=4) unname(coefs[["interaction"]]) else 0
+  predictions <- mu+e*donnees$etudes+t*donnees$temps+interaction*donnees$interaction; scores <- predictions+donnees$residu
+  x_observations <- if(p_libres==1) .5+donnees$jitter_global else if(p_libres==2) donnees$etudes+.5+1.8*donnees$jitter else donnees$etudes+.5+ifelse(donnees$temps<0,-decalage_cellule, decalage_cellule)+donnees$jitter
+  x_segments <- as.vector(rbind(x_observations, x_observations, NA_real_)); y_segments <- as.vector(rbind(scores, predictions, NA_real_))
+  y_licence <- mu-e/2; y_master <- mu+e/2; sans_pression <- c(mu-e/2-t/2+interaction/4, mu+e/2-t/2-interaction/4); rapide <- c(mu-e/2+t/2-interaction/4, mu+e/2+t/2+interaction/4)
+  x_sans <- c(-decalage_cellule,1-decalage_cellule); x_rapide <- c(decalage_cellule,1+decalage_cellule)
+  if(p_libres==1){centres <- .5; valeurs <- mu; largeur <- .06} else if(p_libres==2){centres <- c(0,1); valeurs <- c(y_licence, y_master); largeur <- .065} else {centres <- c(x_sans, x_rapide); valeurs <- c(sans_pression, rapide); largeur <- .045}
+  x_moyennes <- as.vector(rbind(centres-largeur, centres+largeur, NA_real_)); y_moyennes <- as.vector(rbind(valeurs, valeurs, NA_real_)); x_principal <- if(p_libres==1) c(.18,.82) else c(0,1); y_principal <- if(p_libres==1) c(mu, mu) else c(y_licence, y_master)
+  couleurs <- if(p_libres>=3) ifelse(donnees$temps<0, bleu, orange) else rep(sombre, n)
+  survol <- paste0("<b>", donnees$niveau," : ", donnees$condition,"</b><br>Taux observé = ", sprintf("%.1f", scores),"<br>Taux prédit = ", sprintf("%.1f", predictions),"<br>Résidu = ", sprintf("%.1f", donnees$residu))
+  list(x=list(x_segments, x_moyennes, x_observations, x_principal, x_sans, x_rapide), y=list(y_segments, y_moyennes, scores, y_principal, sans_pression, rapide), visible=c(TRUE, TRUE, TRUE, p_libres<=2, p_libres>=3, p_libres>=3), showlegend=c(FALSE, FALSE, FALSE, p_libres<=2, p_libres>=3, p_libres>=3), name=c("","","", if(p_libres==1) "Moyenne de l’échantillon entier" else "Effet principal du niveau d’études","Sans pression","Moins de 4 sec."), couleurs=couleurs, survol=survol, disposition=list(`xaxis.range`=if(p_libres==1)c(.12,.88)else c(-.18,1.18),`xaxis.tickvals`=if(p_libres==1)list(.5)else c(0,1),`xaxis.ticktext`=if(p_libres==1)list(paste0(n," étudiants"))else c("Licence","Master"),`xaxis.title.text`=if(p_libres==1)"<b>Échantillon complet</b>"else "<b>Niveau d’études</b>",`legend.title.text`=if(p_libres>=3)"<b>Temps de réponse imparti</b>"else "", annotations=annotations_etat(p_libres)))
+}
+
+etats <- lapply(1:4, calcul_etat); donnees_bouton <- function(etat) etat[c("x","y","visible","showlegend","name")]
+boutons_modeles <- lapply(seq_along(etats),\(i) list(label=etiquettes[[i]], method="update", args=list(donnees_bouton(etats[[i]]), etats[[i]]$disposition,0:5)))
+disposition_reset <- etats[[1]]$disposition; disposition_reset[["updatemenus[0].active"]] <- 0L
+bouton_reset <- list(label="Réinitialiser", method="update", args=list(donnees_bouton(etats[[1]]), disposition_reset,0:5)); initial <- etats[[1]]
+
+p <- plot_ly() |>
+  add_trace(x=initial$x[[1]], y=initial$y[[1]], type="scatter", mode="lines", line=list(color=rouge, width=1.7), opacity=.58, hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=initial$x[[2]], y=initial$y[[2]], type="scatter", mode="lines", line=list(color=sombre, width=2.2, dash="dot"), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=initial$x[[3]], y=initial$y[[3]], text=initial$survol, type="scatter", mode="markers", marker=list(color=initial$couleurs, size=8.5, opacity=.84, line=list(color="white", width=1)), hovertemplate="%{text}<extra></extra>", showlegend=FALSE) |>
+  add_trace(name=initial$name[[4]], x=initial$x[[4]], y=initial$y[[4]], type="scatter", mode="lines+markers", line=list(color=orange, width=4), marker=list(color=orange, size=10), hoverinfo="skip", showlegend=TRUE) |>
+  add_trace(name="Sans pression", legendgroup="temps", x=initial$x[[5]], y=initial$y[[5]], customdata=c("Licence","Master"), type="scatter", mode="lines+markers", line=list(color=bleu, width=4), marker=list(color=bleu, size=10), hovertemplate="%{customdata}<br>Sans pression<br>Taux prédit = %{y:.1f}<extra></extra>", showlegend=FALSE, visible=FALSE) |>
+  add_trace(name="Moins de 4 sec.", legendgroup="temps", x=initial$x[[6]], y=initial$y[[6]], customdata=c("Licence","Master"), type="scatter", mode="lines+markers", line=list(color=orange, width=4, dash="dash"), marker=list(color=orange, size=10), hovertemplate="%{customdata}<br>Moins de 4 sec.<br>Taux prédit = %{y:.1f}<extra></extra>", showlegend=FALSE, visible=FALSE) |>
+  layout(width=850, height=320, autosize=FALSE, dragmode=FALSE, hovermode="closest", xaxis=list(title=list(text="<b>Échantillon complet</b>", standoff=7), tickmode="array", tickvals=.5, ticktext=paste0(n," étudiants"), range=c(.12,.88), fixedrange=TRUE, zeroline=FALSE), yaxis=list(title=list(text="<b>Taux d'oubli de la fréquence de base</b>", standoff=6), range=c(0,100), dtick=20, fixedrange=TRUE, zeroline=FALSE), legend=list(title=list(text=""), orientation="h", x=.37, xanchor="center", y=.99, yanchor="top", font=list(size=10), bgcolor="rgba(255,255,255,.86)"), annotations=annotations_etat(1), updatemenus=list(list(type="buttons", direction="down", active=0, showactive=TRUE, x=1.02, xanchor="left", y=1.10, yanchor="top", font=list(size=8.5, color=sombre), bgcolor="white", bordercolor=orange, borderwidth=1.3, pad=list(r=0, t=0), buttons=boutons_modeles), list(type="buttons", direction="down", active=-1, showactive=FALSE, x=1.34, xanchor="left", y=1.10, yanchor="top", font=list(size=8.5, color=sombre), bgcolor="white", bordercolor="#999", borderwidth=1, pad=list(r=0, t=0), buttons=list(bouton_reset))), margin=list(l=88, r=260, t=57, b=50)) |>
+  config(displayModeBar=FALSE, responsive=FALSE)
+
+htmlwidgets::onRender(p,"
+function(el, x, data){
+ const defaut=[52,-11,20,8];let etape=0;el.style.position='relative';
+ const panel=document.createElement('div');panel.className='curseurs-ddl';panel.style.cssText='position:absolute;top:205px;right:8px;bottom:8px;width:242px;padding:4px 8px;background:rgba(255,255,255,.97);border:1px solid #bbb;border-radius:7px;font:8.7px sans-serif;line-height:1;z-index:20;box-sizing:border-box;overflow:hidden';
+ panel.innerHTML=`<label class='parametre'><b><i>b</i><sub>0</sub> ; Tendance centrale</b><output></output><input type='range' min='45' max='55' step='1' value='52'></label><label class='parametre'><b><i>b</i><sub>1</sub> ; Niveau d’études</b><output></output><input type='range' min='-16' max='16' step='1' value='-11'></label><label class='parametre'><b><i>b</i><sub>2</sub> ; Temps imparti</b><output></output><input type='range' min='-20' max='20' step='1' value='20'></label><label class='parametre'><b><i>b</i><sub>3</sub> ; Interaction</b><output></output><input type='range' min='-12' max='12' step='1' value='8'></label><style>.curseurs-ddl .parametre{display:block;height:22px;margin:0}.curseurs-ddl .parametre output{float:right}.curseurs-ddl .parametre input{display:block;width:100%;height:12px;margin:0}</style>`;el.appendChild(panel);
+ const sliders=[...panel.querySelectorAll('input')], sorties=[...panel.querySelectorAll('output')], labels=[...panel.querySelectorAll('.parametre')], format=v=>(+v<0?'−':'')+Math.abs(+v).toFixed(0), segments=(c, v, l)=>({x:c.flatMap(z=>[z-l, z+l, null]), y:v.flatMap(z=>[z, z, null])});
+ function synchroniser(){labels.forEach((label, i)=>{const actif=i<=etape;label.style.opacity=actif?1:.32;sliders[i].disabled=!actif;sorties[i].textContent=format(sliders[i].value)})}
+ function actualiser(){const p=etape+1, v=sliders.map(s=>+s.value), mu=v[0], e=p>=2?v[1]:0, t=p>=3?v[2]:0, k=p>=4?v[3]:0, pred=data.etudes.map((xe, i)=>mu+e*xe+t*data.temps[i]+k*xe*data.temps[i]), scores=pred.map((y, i)=>y+data.residus[i]);const xObs=data.etudes.map((xe, i)=>p===1?.5+data.jitterGlobal[i]:p===2?xe+.5+1.8*data.jitter[i]:xe+.5+(data.temps[i]<0?-data.decalage:data.decalage)+data.jitter[i]), xSeg=[], ySeg=[];xObs.forEach((z, i)=>{xSeg.push(z, z, null);ySeg.push(scores[i], pred[i], null)});const yL=mu-e/2, yM=mu+e/2, sans=[mu-e/2-t/2+k/4, mu+e/2-t/2-k/4], rapide=[mu-e/2+t/2-k/4, mu+e/2+t/2+k/4], xSans=[-data.decalage,1-data.decalage], xRapide=[data.decalage,1+data.decalage], m=p===1?segments([.5],[mu],.06):p===2?segments([0,1],[yL, yM],.065):segments([...xSans,...xRapide],[...sans,...rapide],.045), couleurs=data.temps.map(z=>p>=3?(z<0?data.bleu:data.orange):data.sombre), survol=scores.map((y, i)=>'<b>'+data.niveaux[i]+' ; '+data.conditions[i]+'</b><br>Taux observé = '+y.toFixed(1).replace('.',',')+'<br>Taux prédit = '+pred[i].toFixed(1).replace('.',',')+'<br>Résidu = '+data.residus[i].toFixed(1).replace('.',','));Plotly.restyle(el,{x:[xSeg, m.x, xObs, p===1?[.18,.82]:[0,1], xSans, xRapide], y:[ySeg, m.y, scores, p===1?[mu, mu]:[yL, yM], sans, rapide]},[0,1,2,3,4,5]);Plotly.restyle(el,{text:[survol],'marker.color':[couleurs]},[2]);synchroniser()}
+ sliders.forEach(s=>s.addEventListener('input', actualiser));el.on('plotly_buttonclicked', e=>{const libelle=e.button.label;if(libelle==='Réinitialiser'){defaut.forEach((v, i)=>sliders[i].value=v);etape=0}else etape=Math.max(0, Number(libelle.charAt(0))-1);synchroniser();requestAnimationFrame(()=>requestAnimationFrame(actualiser))});
+ ['pointerdown','click','keydown'].forEach(type=>panel.addEventListener(type, e=>e.stopPropagation()));synchroniser();
+}", data=list(etudes=donnees$etudes, temps=donnees$temps, niveaux=donnees$niveau, conditions=donnees$condition, residus=donnees$residu, jitter=donnees$jitter, jitterGlobal=donnees$jitter_global, decalage=decalage_cellule, bleu=bleu, orange=orange, sombre=sombre))
+```
+:::
+
+<!--- Commencer ici le CM2 la prochaine fois --->
+
+## L’appariement apporte de l’information au modèle {.smaller .titre-tres-long}
+
+Dans un plan indépendant, chaque participant fournit une seule observation. Dans un plan apparié, il est observé dans plusieurs conditions. Ainsi, 20 participants mesurés deux fois produisent 40 observations, mais seulement **ces observations ne proviennent que de 20 unités indépendantes.**
+
+Les mesures d’un même participant partagent ses caractéristiques individuelles. L’appariement indique donc au modèle quelles observations proviennent d’une même personne et évoluent ensemble.
+
+Traiter ces scores comme indépendants revient à **effacer les paires** et à considérer, à tort, que les 40 observations proviennent de 40 personnes différentes. Le modèle ne respecte alors plus le plan expérimental.
+
+L’analyse repose donc sur les **20 changements individuels (i.e., les différences entre mesures répétées intra-participant)**. Après estimation du changement moyen, il reste **19 degrés de liberté résiduels**. Ceux-ci dépendent du nombre d’informations pouvant varier indépendamment, et non pas juste du nombre d'observations. Ce nombre d'observations indépendantes ne peut vraiment se déterminer qu'à l'aide de la connaissance du plan expérimental.
+
+→ Malgré la perte en termes de nombre d'observations indépendantes, tenir compte de l'appariemment en calculant un score de différences entre mesures répétées permet de faire en sorte que chaque participant devienne son propre contrôle !
+
+## Notion de covariance entre mesures répétées {.smaller .titre-tres-long}
+La **covariance** désigne la tendance de deux mesures à varier ensemble.
+
+Elle est **positive** lorsque les participants ayant un score élevé dans une condition tendent aussi à avoir un score élevé dans l’autre ; proche de **zéro** lorsqu’aucune relation systématique n’apparaît ; et est **négative** lorsque les observations tendent à évoluer en sens inverse.
+
+*Nota* : Le terme de covariance renvoit plus spécifiquement au numérateur d'une corrélation, ce terme n'est pas réservé qu'aux mesures appariées, mais on le rencontrera souvent lorsque l'on traite celles-ci.
+
+## L’appariement ajoute de l’information aux données {.titre-tres-long}
+
+::: {.graphique-r .plotly-stable}
+```{r}
+#| label: fig-covariance-appariement-simple
+#| fig-cap: |
+#|   Trois appariements possibles des mêmes observations. 
+#|   <span class="note-figure"><em>Note.</em> Seuls les spaghettis intrasujets, et donc la covariance des mesures répétées changent. L’analyse du *t*-test apparié repose sur les 20 différences intra-individuelles entre conditions : après estimation de **la différence moyenne**, il reste donc $20-1=19$ ddl résiduels.</span>
+#| fig-width: 9.4
+#| fig-height: 3.35
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+bleu <- "#2C7FB8"; orange <- "#D97706"; sombre <- "#263442"; gris <- "#8A929B"
+set.seed(20260806)
+n_sujets <- 20L
+
+# Les mêmes scores marginaux sont conservés dans les trois situations
+score_1 <- 50 + 10 * as.numeric(scale(rnorm(n_sujets)))
+score_2_base <- 62 + 10 * as.numeric(scale(rnorm(n_sujets)))
+ordre_1 <- order(score_1); valeurs_2 <- sort(score_2_base)
+
+score_2_positif <- score_2_negatif <- numeric(n_sujets)
+score_2_positif[ordre_1] <- valeurs_2
+score_2_negatif[ordre_1] <- rev(valeurs_2)
+
+permutations <- replicate(2000, sample(score_2_base))
+correlations_perm <- apply(permutations, 2, \(x) cor(score_1, x))
+score_2_nul <- permutations[, which.min(abs(correlations_perm))]
+
+scores_2 <- list(score_2_negatif, score_2_nul, score_2_positif)
+noms_covariance <- c("Négative", "Proche de zéro", "Positive")
+explications <- c("<b>Covariance négative</b><br>Les scores d’un même participant tendent à évoluer en sens inverse.",
+  "<b>Covariance proche de zéro</b><br>Les deux scores ne varient pas ensemble de manière systématique.",
+  "<b>Covariance positive</b><br>Les participants ayant un score élevé dans une condition tendent à rester élevés dans l’autre.")
+
+demi_violon <- function(y, centre, cote, largeur=.20) {
+  d <- density(y, from=20, to=92, n=220, adjust=.9)
+  w <- largeur * d$y / max(d$y)
+  list(x=c(rep(centre, length(d$x)), rev(centre + cote*w)), y=c(d$x, rev(d$x)))}
+
+violon_1 <- demi_violon(score_1, 0, -1)
+violon_2 <- demi_violon(score_2_base, 1, 1)
+
+moyennes <- c(mean(score_1), mean(score_2_base))
+se <- c(sd(score_1), sd(score_2_base)) / sqrt(n_sujets)
+borne_inf <- moyennes - 1.96*se; borne_sup <- moyennes + 1.96*se
+x_bande <- c(0, 1, 1, 0); y_bande <- c(borne_inf, rev(borne_sup))
+
+x_lignes <- as.vector(rbind(rep(0, n_sujets), rep(1, n_sujets), rep(NA_real_, n_sujets)))
+x_points <- c(rep(0, n_sujets), rep(1, n_sujets))
+participants <- rep(seq_len(n_sujets), 2)
+
+creer_etat <- function(score_2) list(
+  y_lignes=as.vector(rbind(score_1, score_2, rep(NA_real_, n_sujets))),
+  y_points=c(score_1, score_2))
+etats <- lapply(scores_2, creer_etat)
+
+annotations_etat <- function(i) list(list(x=.03, y=.97, xref="paper", yref="paper", text=explications[i], showarrow=FALSE, xanchor="left", yanchor="top", align="left", bgcolor="rgba(255,255,255,.94)", bordercolor=sombre, borderwidth=1, borderpad=5, font=list(size=14, color=sombre)))
+
+etapes <- lapply(seq_along(etats), function(i) list(
+  method="update", label=noms_covariance[i],
+  args=list(list(y=list(violon_1$y, violon_2$y, y_bande, etats[[i]]$y_lignes, etats[[i]]$y_points, moyennes)),
+    list(annotations=annotations_etat(i)))))
+
+indice_initial <- 3L
+etat_initial <- etats[[indice_initial]]
+
+plot_ly() |>
+  add_trace(x=violon_1$x, y=violon_1$y, type="scatter", mode="lines", fill="toself",
+            fillcolor="rgba(44,127,184,.22)", line=list(color=bleu, width=1.2),
+            hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=violon_2$x, y=violon_2$y, type="scatter", mode="lines", fill="toself",
+            fillcolor="rgba(217,119,6,.22)", line=list(color=orange, width=1.2),
+            hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=x_bande, y=y_bande, type="scatter", mode="lines", fill="toself",
+            fillcolor="rgba(38,52,66,.16)", line=list(color="rgba(0,0,0,0)", width=0),
+            hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=x_lignes, y=etat_initial$y_lignes, type="scatter", mode="lines",
+            line=list(color=gris, width=1.5), opacity=.58,
+            hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=x_points, y=etat_initial$y_points, customdata=participants,
+            type="scatter", mode="markers",
+            marker=list(color=c(rep(bleu, n_sujets), rep(orange, n_sujets)),
+                        size=8, opacity=.86, line=list(color="white", width=1)),
+            hovertemplate="<b>Participant %{customdata}</b><br>Score = %{y:.1f}<extra></extra>",
+            showlegend=FALSE) |>
+  add_trace(x=0:1, y=moyennes, type="scatter", mode="lines+markers",
+            line=list(color=sombre, width=4), marker=list(color=sombre, size=11),
+            hovertemplate="Moyenne = %{y:.1f}<extra></extra>", showlegend=FALSE) |>
+  layout(width=850, height=320, autosize=FALSE, dragmode=FALSE, hovermode="closest",
+    xaxis=list(tickmode="array", tickvals=0:1, ticktext=c("Condition 1", "Condition 2"),
+               range=c(-.27, 1.27), title="<b>Conditions appariées</b>",
+               fixedrange=TRUE, zeroline=FALSE),
+    yaxis=list(range=c(20, 92), dtick=10, title="<b>Score observé</b>",
+               fixedrange=TRUE, zeroline=FALSE),
+    annotations=annotations_etat(indice_initial),
+    sliders=list(list(active=indice_initial-1L,
+                      currentvalue=list(prefix="Covariance intra-individuelle : "),
+                      pad=list(t=38), steps=etapes)),
+    margin=list(l=72, r=20, t=20, b=92)) |>
+  config(displayModeBar=FALSE, responsive=FALSE)
+```
+:::
+
+## Histogramme, densité et probabilité {.smaller}
+
+Dans un histogramme, chaque barre représente une partie des observations. Pour construire un histogramme, on divise simplement l’effectif de chaque barre par l’effectif total (on divise la colonne du tableur par sa somme) : on obtient une **proportion**, ce faisant, la somme des proportions de toutes les barres vaut **1**.
+
+Une courbe de densité (e.g., un violon) généralise l'histogramme, c'en est une version lissée, continue. 
+
+Avec une courbe de densité, toute l’aire sous la courbe vaut **1**. La **probabilité** d’observer une valeur dans un intervalle correspond à l’**aire sous la courbe** (*area under curve* ou AUC) dans cet intervalle.
+
+> **Nota**. La hauteur d'une courbe de densité ne constitue pas une probabilité. Seule une aire représente une probabilité.
+
+## Le *z*-score {.smaller}
+
+Le z-score **standardise** (i.e., divise par l'écart-type) la distance entre une observation individuelle $x_i$ et une moyenne $m$ d'échantillon ou $\mu_0$ de population. De ce fait, il perd l'unité de la VD et s'exprime dorénavant **en nombre d’écarts-types** :
+
+$$z=\frac{x_i-\mu_0}{\sigma}
+\qquad\text{ou}\qquad
+z=\frac{x_i- m}{s},$$
+où $\mu_0$ et $\sigma$ sont respectivement la moyenne et l'écart-type de la population, tandis que $m$ et $s$ sont la moyenne et l'écart-type de l'échantillon. 
+
+Diviser par l'écart-type permet donc de **standardiser la manière avec laquelle on s'exprime** : quelque soit la mesure initiale on peut se rapporter à des seuils communs pour les interpréter ; et à la valeur de $\pm 1.96 \sigma$ pour effectuer un test bilatéral à $\alpha = 5\%=.05$.
+
+
+## Les valeurs critiques du *z*-score
+
+::: {.graphique-r .plotly-stable .plotly-z}
+
+```{r}
+#| label: fig-z-score-interactif
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Aire sous la loi normale centrée-réduite selon la valeur de $z$ et la direction du test.
+#|   <span class="note-figure"><em>Note.</em> L’aire rouge représente, sous $H_0$, la probabilité d’observer un $z$ au moins aussi extrême que celui sélectionné dans la ou les directions définies par le test : sa surface est la <em>p-value</em>. L’aire bleue représente son complément, soit $1-p$. Les valeurs de -1.645 ; -1.96 et -2.33 correspondent respectivement 5ème, 2.5ème et 1er percentile de la loi $z$.</span>
+#| fig-width: 8.85
+#| fig-height: 3.65
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+z <- seq(-4,4, by=.01); densite <- dnorm(z); z_patient <- -2.30
+valeurs_z <- sort(unique(c(seq(-4,4, by=.10), z_patient))); indice_initial <- which.min(abs(valeurs_z-z_patient))-1L
+format_fr <- function(x, n=2) sub("\\.",",", sprintf(paste0("%.", n,"f"), x))
+format_z <- function(x) paste0(if(x>0) "+" else if(x<0) "−" else "", format_fr(abs(x),2))
+format_pct <- function(p){pct <- 100*p; paste0(format_fr(pct, if(pct<.1) 3 else 2)," %")}
+format_decimal <- function(p) sub("^0","", sprintf(if(p<.001) "%.4f" else "%.3f", p))
+zone_gauche <- function(limite){xx <- c(z[z<limite], limite); list(x=xx, y=dnorm(xx))}
+zone_droite <- function(limite){xx <- c(limite, z[z>limite]); list(x=xx, y=dnorm(xx))}
+zone_centrale <- function(gauche, droite){xx <- c(gauche, z[z>gauche & z<droite], droite); list(x=xx, y=dnorm(xx))}
+zone_vide <- list(x=NA_real_, y=NA_real_)
+
+etat_z <- function(valeur, mode){
+  if(mode=="bilateral"){
+    a <- abs(valeur); p_value <- 2*pnorm(-a); bleu <- zone_centrale(-a, a); gauche <- zone_gauche(-a); droite <- zone_droite(a); x_bleu <- 0
+    probabilite <- paste0("P(|Z| ≥ ", format_fr(a),")"); nom_mode <- "Test bilatéral"
+  } else if(mode=="gauche"){
+    p_value <- pnorm(valeur); bleu <- zone_droite(valeur); gauche <- zone_gauche(valeur); droite <- zone_vide; x_bleu <- qnorm((pnorm(valeur)+1)/2)
+    probabilite <- paste0("P(Z ≤ ", format_z(valeur),")"); nom_mode <- "Test unilatéral gauche"
+  } else {
+    p_value <- pnorm(valeur, lower.tail=FALSE); bleu <- zone_gauche(valeur); gauche <- zone_vide; droite <- zone_droite(valeur); x_bleu <- qnorm(pnorm(valeur)/2)
+    probabilite <- paste0("P(Z ≥ ", format_z(valeur),")"); nom_mode <- "Test unilatéral droit"
+  }
+  x_bleu <- max(-3.75, min(3.75, x_bleu))
+  annotations <- list(
+    list(x=x_bleu, y=.43, xref="x", yref="paper", text=paste0("<b>", format_pct(1-p_value),"</b>"), showarrow=FALSE, font=list(size=16, color=blue)),
+    list(x=valeur, y=.70, xref="x", yref="paper", text=paste0("<b>z = ", format_z(valeur),"</b>"), showarrow=FALSE, xanchor=if(valeur<0) "right" else "left", bgcolor="rgba(255,255,255,.92)", bordercolor="black", borderpad=4),
+    list(x=.98, y=.97, xref="paper", yref="paper", text=paste0("<b>", nom_mode,"</b><br><i>p</i> = ", probabilite," = ", format_pct(p_value)," = ", format_decimal(p_value)), showarrow=FALSE, xanchor="right", yanchor="top", align="right", bgcolor="rgba(255,255,255,.94)", bordercolor=red, borderwidth=1, borderpad=8, font=list(size=12, color=dark)))
+  formes <- list(list(type="line", xref="x", yref="paper", x0=valeur, x1=valeur, y0=0, y1=1, line=list(color="black", width=4)))
+  list(x=list(bleu$x, gauche$x, droite$x), y=list(bleu$y, gauche$y, droite$y), disposition=list(shapes=formes, annotations=annotations))
+}
+
+creer_etape <- function(valeur, mode){etat <- etat_z(valeur, mode); list(method="update", label=format_z(valeur), args=list(list(x=etat$x, y=etat$y), etat$disposition,0:2))}
+creer_slider <- function(mode, visible=FALSE) list(visible=visible, active=indice_initial, x=.14, len=.72, y=-.24, currentvalue=list(prefix="<b>Observation : z = </b>", xanchor="center", font=list(size=12, color=dark)), font=list(size=1, color="rgba(0,0,0,0)"), ticklen=0, minorticklen=0, tickwidth=0, pad=list(t=16), transition=list(duration=0), steps=lapply(valeurs_z, creer_etape, mode=mode))
+modes <- c("bilateral","gauche","droite")
+creer_bouton <- function(mode, libelle){
+  etat <- etat_z(z_patient, mode); disposition <- etat$disposition; mode_actif <- match(mode, modes)-1L
+  for(i in 0:2){disposition[[paste0("sliders[", i,"].visible")]] <- i==mode_actif; disposition[[paste0("sliders[", i,"].active")]] <- indice_initial}
+  list(method="update", label=libelle, args=list(list(x=etat$x, y=etat$y), disposition,0:2))
+}
+boutons <- unname(Map(creer_bouton, modes, c("Bilatéral","Unilatéral gauche","Unilatéral droit")))
+initial <- etat_z(z_patient,"bilateral"); graduations <- -4:4; etiquettes_graduations <- c("−4","−3","−2","−1","0","1","2","3","4")
+
+p <- plot_ly() |>
+  add_trace(x=initial$x[[1]], y=initial$y[[1]], type="scatter", mode="lines", line=list(width=0), fill="tozeroy", fillcolor=plotly::toRGB(blue, alpha=.18), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=initial$x[[2]], y=initial$y[[2]], type="scatter", mode="lines", line=list(width=0), fill="tozeroy", fillcolor=plotly::toRGB(red, alpha=.72), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=initial$x[[3]], y=initial$y[[3]], type="scatter", mode="lines", line=list(width=0), fill="tozeroy", fillcolor=plotly::toRGB(red, alpha=.72), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=z, y=densite, type="scatter", mode="lines", line=list(color=dark, width=3), hovertemplate="z = %{x:.2f}<br>Densité = %{y:.3f}<extra></extra>", showlegend=FALSE) |>
+  layout(width=850, height=350, autosize=FALSE, dragmode=FALSE, hovermode="closest",
+    title=list(text="Le z-score situe une observation dans la loi normale centrée-réduite", x=.5, xanchor="center", font=list(size=19)),
+    xaxis=list(title=list(text="Nombre d’écarts-types par rapport à la moyenne", standoff=5), range=c(-4,4), tickmode="array", tickvals=graduations, ticktext=etiquettes_graduations, tickfont=list(size=11), fixedrange=TRUE, zeroline=FALSE),
+    yaxis=list(title="Densité", range=c(0,.43), showticklabels=FALSE, fixedrange=TRUE, zeroline=FALSE),
+    shapes=initial$disposition$shapes, annotations=initial$disposition$annotations,
+    sliders=list(creer_slider("bilateral", TRUE), creer_slider("gauche"), creer_slider("droite")),
+    updatemenus=list(list(type="buttons", direction="right", active=0, showactive=TRUE, x=.01, xanchor="left", y=1.18, yanchor="top", font=list(size=10.5, color=dark), bgcolor="rgba(255,255,255,.94)", bordercolor=red, borderwidth=1, pad=list(r=0, t=0), buttons=boutons)),
+    margin=list(l=72, r=20, t=82, b=100)) |>
+  config(displayModeBar=FALSE, responsive=FALSE)
+p
+```
+:::
+
+## Les notes standards (*z*, QI, T, etc.) {.smaller .titre-tres-long}
+
+En psychologie, on appelle note standard une statistique étalonnée à partir d'une loi normale centrée-réduite (i.e., d'une loi $z$). Une loi normale centrée-réduite a une moyenne de 0 et un écart-type de 1 : $\mathcal{N}(\mu=0,\sigma=1)$. Autrement dit elle est centrée sur la moyenne (puisqu'on la soustraite aux $y_i$) et réduite/standardisée de telle manière à avoir un écart-type de 1 (puisqu'on a divisé les $y_i - m$ par l'écart-type $\sigma$).
+
+À partir du *z-score*, on peut obtenir d’autres échelles en le multipliant par l’écart-type souhaité, puis en ajoutant la moyenne souhaitée. On parle de **transformation linéaire** car chaque score est multiplié par une constante puis décalé d’une même valeur (**somme pondérée**).
+
+Par exemple, une note T (e.g., échelles type Weschler: WAIS, WMS, CVLT) utilise spécifiquement une moyenne de 50 et un écart-type de 10 :
+$$T = 50 + 10z$$
+
+Ces scores expriment donc la même position relative, mais sur des échelles différentes. Le QI est un exemple de note standard.
+
+## L’échelle de Stanford-Binet (annexe) {.smaller}
+
+L’échelle de Stanford-Binet est, elle, étalonnée sur $\mu=100$ et $\sigma=15$ via $QI=100+15z$.
+
+| *z*-score | Note T |  QI | Rang percentile | Position                               |
+|:----------:|:------:|:---:|:---------------:|:--------------------------------------:|
+|        -3  |   20   |  55 |      $< C_{1}$       | 3 $\sigma$ sous la moyenne             |
+|        -2  |   30   |  70 |      $\approx C_{2}$      | 2 $\sigma$ sous la moyenne             |
+|        -1  |   40   |  85 |   $\approx C_{16}$     | 1 $\sigma$ sous la moyenne             |
+|         0  |   50   | 100 |     **$C_{50}$ : médiane**       | **Moyenne $\mu_0$**                        |
+|        +1  |   60   | 115 |     $\approx C_{85}$        | 1 $\sigma$ au-dessus de la moyenne     |
+|        +2  |   70   | 130 |     $\approx C_{98}$        | 2 $\sigma$ au-dessus de la moyenne     |
+|        +3  |   80   | 145 |     $> C_{99}$        | 3 $\sigma$ au-dessus de la moyenne     |
+
+*Nota* : Le rang percentile correspond à la proportion (c'est un pourcentage) de la population obtenant un score inférieur ou égal à la valeur considérée, il peut être utilisé comme statistique critique du test.
+
+## 95 % de la population a un QI compris entre 70 et 130 {.titre-tres-long}
+
+::: {.graphique-r .plotly-stable .plotly-z}
+```{r}
+#| label: fig-stanford-binet-interactif
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Aire sous la loi normale des QI Stanford–Binet selon le score observé et la direction du test.
+#|   <span class="note-figure"><em>Note.</em> L’aire rouge représente, sous $H_0$, la probabilité d’observer un QI au moins aussi extrême que celui sélectionné dans la ou les directions définies par le test : sa surface est la <em>p-value</em>. L’aire bleue représente son complément, soit $1-p$.</span>
+#| fig-width: 8.85
+#| fig-height: 3.65
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+moyenne_sb <- 100; ecart_type_sb <- 15
+score_min <- moyenne_sb-4*ecart_type_sb; score_max <- moyenne_sb+4*ecart_type_sb
+score <- seq(score_min, score_max, length.out=1601); densite <- dnorm(score, moyenne_sb, ecart_type_sb); z_equivalent <- (score-moyenne_sb)/ecart_type_sb
+score_patient <- moyenne_sb-2.30*ecart_type_sb
+valeurs_score <- sort(unique(c(seq(score_min, score_max, by=ecart_type_sb/10), score_patient))); indice_initial <- which.min(abs(valeurs_score-score_patient))-1L
+format_fr <- function(x, n=1) sub("\\.",",", sprintf(paste0("%.", n,"f"), x))
+format_pct <- function(p){pct <- 100*p; paste0(format_fr(pct, if(pct<.1) 3 else 2)," %")}
+format_decimal <- function(p) sub("^0","", sprintf(if(p<.001) "%.4f" else "%.3f", p))
+zone_gauche <- function(limite){xx <- c(score[score<limite], limite); list(x=xx, y=dnorm(xx, moyenne_sb, ecart_type_sb))}
+zone_droite <- function(limite){xx <- c(limite, score[score>limite]); list(x=xx, y=dnorm(xx, moyenne_sb, ecart_type_sb))}
+zone_centrale <- function(gauche, droite){xx <- c(gauche, score[score>gauche & score<droite], droite); list(x=xx, y=dnorm(xx, moyenne_sb, ecart_type_sb))}
+zone_vide <- list(x=NA_real_, y=NA_real_)
+
+etat_score <- function(valeur, mode){
+  if(mode=="bilateral"){
+    distance <- abs(valeur-moyenne_sb); p_value <- 2*pnorm(-distance/ecart_type_sb); bleu <- zone_centrale(moyenne_sb-distance, moyenne_sb+distance); gauche <- zone_gauche(moyenne_sb-distance); droite <- zone_droite(moyenne_sb+distance); x_bleu <- moyenne_sb
+    probabilite <- paste0("P(|QI − ", format_fr(moyenne_sb),"| ≥ ", format_fr(distance),")"); nom_mode <- "Test bilatéral"
+  } else if(mode=="gauche"){
+    p_value <- pnorm(valeur, moyenne_sb, ecart_type_sb); bleu <- zone_droite(valeur); gauche <- zone_gauche(valeur); droite <- zone_vide; x_bleu <- qnorm((pnorm(valeur, moyenne_sb, ecart_type_sb)+1)/2, moyenne_sb, ecart_type_sb)
+    probabilite <- paste0("P(QI ≤ ", format_fr(valeur),")"); nom_mode <- "Test unilatéral gauche"
+  } else {
+    p_value <- pnorm(valeur, moyenne_sb, ecart_type_sb, lower.tail=FALSE); bleu <- zone_gauche(valeur); gauche <- zone_vide; droite <- zone_droite(valeur); x_bleu <- qnorm(pnorm(valeur, moyenne_sb, ecart_type_sb)/2, moyenne_sb, ecart_type_sb)
+    probabilite <- paste0("P(QI ≥ ", format_fr(valeur),")"); nom_mode <- "Test unilatéral droit"
+  }
+  x_bleu <- max(score_min+.25*ecart_type_sb, min(score_max-.25*ecart_type_sb, x_bleu))
+  annotations <- list(
+    list(x=x_bleu, y=.43, xref="x", yref="paper", text=paste0("<b>", format_pct(1-p_value),"</b>"), showarrow=FALSE, font=list(size=16, color=blue)),
+    list(x=valeur, y=.70, xref="x", yref="paper", text=paste0("<b>QI = ", format_fr(valeur),"</b>"), showarrow=FALSE, xanchor=if(valeur<moyenne_sb) "right" else "left", bgcolor="rgba(255,255,255,.92)", bordercolor="black", borderpad=4),
+    list(x=.98, y=.97, xref="paper", yref="paper", text=paste0("<b>", nom_mode,"</b><br><i>p</i> = ", probabilite," = ", format_pct(p_value)," = ", format_decimal(p_value)), showarrow=FALSE, xanchor="right", yanchor="top", align="right", bgcolor="rgba(255,255,255,.94)", bordercolor=red, borderwidth=1, borderpad=8, font=list(size=12, color=dark)))
+  formes <- list(list(type="line", xref="x", yref="paper", x0=valeur, x1=valeur, y0=0, y1=1, line=list(color="black", width=4)))
+  list(x=list(bleu$x, gauche$x, droite$x), y=list(bleu$y, gauche$y, droite$y), disposition=list(shapes=formes, annotations=annotations))
+}
+
+creer_etape <- function(valeur, mode){etat <- etat_score(valeur, mode); list(method="update", label=format_fr(valeur), args=list(list(x=etat$x, y=etat$y), etat$disposition,0:2))}
+creer_slider <- function(mode, visible=FALSE) list(visible=visible, active=indice_initial, x=.14, len=.72, y=-.24, currentvalue=list(prefix="<b>Observation : QI = </b>", xanchor="center", font=list(size=12, color=dark)), font=list(size=1, color="rgba(0,0,0,0)"), ticklen=0, minorticklen=0, tickwidth=0, pad=list(t=16), transition=list(duration=0), steps=lapply(valeurs_score, creer_etape, mode=mode))
+modes <- c("bilateral","gauche","droite")
+creer_bouton <- function(mode, libelle){
+  etat <- etat_score(score_patient, mode); disposition <- etat$disposition; mode_actif <- match(mode, modes)-1L
+  for(i in 0:2){disposition[[paste0("sliders[", i,"].visible")]] <- i==mode_actif; disposition[[paste0("sliders[", i,"].active")]] <- indice_initial}
+  list(method="update", label=libelle, args=list(list(x=etat$x, y=etat$y), disposition,0:2))
+}
+boutons <- unname(Map(creer_bouton, modes, c("Bilatéral","Unilatéral gauche","Unilatéral droit")))
+initial <- etat_score(score_patient,"bilateral"); graduations <- seq(score_min, score_max, by=ecart_type_sb)
+
+p <- plot_ly() |>
+  add_trace(x=initial$x[[1]], y=initial$y[[1]], type="scatter", mode="lines", line=list(width=0), fill="tozeroy", fillcolor=plotly::toRGB(blue, alpha=.18), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=initial$x[[2]], y=initial$y[[2]], type="scatter", mode="lines", line=list(width=0), fill="tozeroy", fillcolor=plotly::toRGB(red, alpha=.72), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=initial$x[[3]], y=initial$y[[3]], type="scatter", mode="lines", line=list(width=0), fill="tozeroy", fillcolor=plotly::toRGB(red, alpha=.72), hoverinfo="skip", showlegend=FALSE) |>
+  add_trace(x=score, y=densite, customdata=z_equivalent, type="scatter", mode="lines", line=list(color=dark, width=3), hovertemplate="QI = %{x:.1f}<br>z = %{customdata:.2f}<br>Densité = %{y:.4f}<extra></extra>", showlegend=FALSE) |>
+  layout(width=850, height=350, autosize=FALSE, dragmode=FALSE, hovermode="closest",
+    title=list(text="Un QI Stanford–Binet se situe dans une distribution de moyenne 100 et d’écart-type 15", x=.5, xanchor="center", font=list(size=19)),
+    xaxis=list(title=list(text="QI Stanford–Binet", standoff=5), range=c(score_min, score_max), tickmode="array", tickvals=graduations, ticktext=format_fr(graduations,0), tickfont=list(size=11), fixedrange=TRUE, zeroline=FALSE),
+    yaxis=list(title="Densité", range=c(0,.0287), showticklabels=FALSE, fixedrange=TRUE, zeroline=FALSE),
+    shapes=initial$disposition$shapes, annotations=initial$disposition$annotations,
+    sliders=list(creer_slider("bilateral", TRUE), creer_slider("gauche"), creer_slider("droite")),
+    updatemenus=list(list(type="buttons", direction="right", active=0, showactive=TRUE, x=.01, xanchor="left", y=1.18, yanchor="top", font=list(size=10.5, color=dark), bgcolor="rgba(255,255,255,.94)", bordercolor=red, borderwidth=1, pad=list(r=0, t=0), buttons=boutons)),
+    margin=list(l=72, r=20, t=82, b=100)) |>
+  config(displayModeBar=FALSE, responsive=FALSE)
+p
+```
+:::
+
+## L’erreur standard et le *t*-test {.smaller .titre-long}
+
+<div style = "font-size:0.88em;">
+ L’**erreur standard** ($SE$ ou $se$) mesure la **précision de l’estimation de la moyenne de population**, on divise l'écart-type d'échantillon $s$ par la racine carré du nombre d'observations indépendantes $n$ :
+
+$$SE=\frac{s}{\sqrt n}$$
+
+L'erreur standard $SE$ diminue à mesure que la précision sur l'estimation sur la moyenne de population $\mu$ augmente. Pour augmenter cette précision (diminuer $SE$) soit l'écart-type doit diminuer, soit la taille d'échantillon doit augmenter. La $SE$ est utilisée pour la construction d'intervalles de confiance (e.g., en utilisant IC95%: $\pm 1.96 se$ ce qui correspond à 2 tests unilatéraux à $2.5\%$).
+
+Le *t*-test standardise une différence de moyenne **par l'erreur standard de cette différence**. Par exemple, lors d'un *one-sample* $t$-test, on compare la moyenne observée $m$ à une valeur de référence $\mu_0$, fixée sous l’hypothèse nulle $H_0:\mu=\mu_0$.
+
+$$t=\frac{m-\mu_0}{s/\sqrt{n}}$$
+
+où $s$ désigne l’écart-type estimé dans l’échantillon et $n$ son effectif. Sous $H_0$ et les conditions du test, cette statistique suit une loi de Student à $n-1$ degrés de liberté. La valeur $t$ exprime l’écart entre la moyenne observée et la valeur de référence **en unités d’erreur standard**.
+
+</div>
+
+## Trois types de *t*-tests, une même logique {.smaller}
+
+<div style="font-size:0.97em;">
+On distingue trois types de *t*-tests:
+
+| Type de *t*-test | Question posée | Différence testée | Erreur standard | Paramètres libres |
+|:---:|:---:|:---:|:---:|:---:|
+| **À un échantillon** | La moyenne diffère-t-elle d’une valeur de référence $\mu_0$ ? | $m-\mu_0$ | $\dfrac{s}{\sqrt n}$ | **1** |
+| **À échantillons appariés** | La moyenne change-t-elle entre deux modalités appariées ? | $\bar d$, avec $d_i=x_{i2}-x_{i1}$ | $\dfrac{s_d}{\sqrt n}$ | **1** |
+| **À échantillons indépendants** | Les moyennes de deux groupes distincts diffèrent-elles ? | $m_1-m_2$ | $\sqrt{\dfrac{s_1^2}{n_1}+\dfrac{s_2^2}{n_2}}$ | **2** |
+
+La valeur $|t|$ augmente lorsque la différence observée devient grande relativement à son incertitude. **Le choix du test dépend du plan d’étude :** une référence, deux mesures liées ou deux groupes indépendants.
+
+*Nota.* Le $t$-test apparié est un *one-sample* $t$-test sur les différences entre les 2 modalités de mesures répétées.
+</div>
+
+## L’hypothèse *point-sharp* null (à apprendre) {.smaller .titre-tres-long}
+
+Un test d’hypothèse nulle (ici bilatéral) examine une hypothèse $H_0$ selon laquelle **aucun effet n’existe dans la population**. Sous $H_0$, les variations observées proviennent des fluctuations d’échantillonnage et de l’erreur de mesure.
+
+$H_0$ peut porter sur une moyenne comparée à une valeur théorique ou sur une différence de moyennes. L’hypothèse $H_1$ correspond généralement à une inégalité.
+
+Exemple : On souhaite comparer les scores de mémoire épisodique évalués par le test du RL/RI-16 items d’un groupe Alzheimer et d’un groupe contrôle. Pour cela, on effectue un *t*-test à deux échantillons indépendants posant les hypothèses suivantes :
+
+$$H_0 : \mu_{Alzheimer}=\mu_{Contrôle} \qquad H_1:\mu_{Alzheimer}\ne\mu_{Contrôle}$$
+
+## L'hypothèse *point-sharp null* (à apprendre) {.smaller .titre-tres-long}
+
+Une hypothèse nulle ponctuelle (*point-sharp null*) pose qu’une différence (un effet statistique) est **strictement** égale à zéro.
+
+Avec une grande puissance statistique, une différence infime peut devenir significative. **En pratique, une taille d’échantillon finie ne permet jamais de démontrer une égalité parfaite à toute décimale.**
+
+Or, la *p*-value teste ce type d’hypothèse. On peut ici soit **rejeter** $H_0$ soit conclure que les données apportent **trop peu d’évidence pour la rejeter**. Toutefois, on ne peut pas ici accepter l'hypothèse nulle à l'aide de la seule $p$-value.
+
+Le report statistique devra donc toujours compléter la significativité statistique par une **taille d’effet** permettant d'évaluer la significativité **pratique** de l'effet ! Mieux : on peut aussi modifier l'hypothèse étudiée et choisir $H_0 : \mu_{Alzheimer}\approx\mu_{Contrôle}$, c'est ce que font les hypothèses *interval-null*.
+
+## Hypothèse *interval null* (annexe) {.smaller}
+
+Une hypothèse nulle par intervalle (*interval null*) pose qu’une différence est assez petite pour ne présenter **aucune importance en pratique**.
+
+Elle s’appuie sur un intervalle de confiance et une taille d’effet minimale d’intérêt pratique, définie en amont.
+
+Lorsque l’intervalle de confiance se situe entièrement dans la zone d’équivalence, il devient possible de conclure en faveur de l’équivalence pratique à un effet nul.
+
+## La *p*-value {.smaller}
+
+La *p*-value est la probabilité, **sous** $H_0$, d’observer une statistique au moins aussi extrême que celle calculée dans l’échantillon (pas juste la probabilité du résultat obtenu) dans le sens de l'hypothèse $H_1$ alternative.
+
+Elle peut être **unilatérale** lorsque l’hypothèse est orientée ou bien **bilatérale** lorsque les deux directions d'effet sont considérées.
+
+Les tests unilatéraux sont toutefois assez peu utilisés dans la littérature car ils sont parfois considérés comme moins conservateurs (ils feraient trop de faux positifs, erreurs de type I). Ils sont plus utilisés en clinique quand on cherche de la sensibilité aux observations pathologiques (e.g., hypothèses de maladies insidieuses).
+De plus, une *p-value* bilatérale convient aussi très bien aux hypothèses orientées, d'où le fait qu'elle constitue souvent un choix par défaut.
+
+## *p*-value unilatérale et bilatérale
+
+::: {.graphique-r .plotly-stable style="--plotly-height:285px;"}
+```{r}
+#| label: fig-p-value
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Seuil alpha, *p*-value et décision statistique.
+#|   <span class="note-figure"><em>Note.</em> Rouge : aire critique définie par $\alpha$. Orange : aire correspondant à la *p*-value de la statistique observée. Le résultat est significatif lorsque $p \leq \alpha$.</span>
+#| fig-width: 8.85
+#| fig-height: 3.00
+#| fig-dpi: 350
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+z_normale <- seq(-4, 4, length.out = 801)
+direction_initiale <- "droite"
+alpha_initial <- .050
+p_initial <- .065
+valeurs_probabilite <- (1:100) / 1000
+
+format_fr <- function(x, n = 3) sub("\\.", ",", sprintf(paste0("%.", n, "f"), x))
+format_probabilite <- function(x) sub("^0", "", sprintf("%.3f", x))
+seuil_depuis_probabilite <- function(probabilite, direction) if (direction == "bilateral") qnorm(1 - probabilite / 2) else qnorm(1 - probabilite)
+fermer_queue <- function(x) data.frame(x = c(x[1], x, x[length(x)]), y = c(0, dnorm(x), 0))
+
+creer_zone <- function(direction, seuil) {
+  gauche <- fermer_queue(seq(-4, -seuil, length.out = 81)); droite <- fermer_queue(seq(seuil, 4, length.out = 81))
+  switch(direction, gauche = gauche, droite = droite, bilateral = rbind(gauche, data.frame(x = NA_real_, y = NA_real_), droite))
+}
+
+creer_limites <- function(direction, seuil) {
+  abscisses <- switch(direction, gauche = -seuil, droite = seuil, bilateral = c(-seuil, seuil))
+  do.call(rbind, lapply(abscisses, function(x) data.frame(x = c(x, x, NA_real_), y = c(0, dnorm(x), NA_real_))))
+}
+
+texte_etat <- function(direction, alpha, p_value) {
+  z_critique <- seuil_depuis_probabilite(alpha, direction); z_observe <- seuil_depuis_probabilite(p_value, direction)
+  bilateral <- direction == "bilateral"; signe <- if (direction == "gauche") "−" else ""
+  libelle_direction <- switch(direction, gauche = "Test unilatéral gauche", droite = "Test unilatéral droit", bilateral = "Test bilatéral")
+  ligne_z_critique <- if (bilateral) paste0("<i>z</i><sub>crit</sub> = ±", format_fr(z_critique)) else paste0("<i>z</i><sub>crit</sub> = ", signe, format_fr(z_critique))
+  ligne_z_observe <- if (bilateral) paste0("|<i>z</i><sub>obs</sub>| = ", format_fr(z_observe)) else paste0("<i>z</i><sub>obs</sub> = ", signe, format_fr(z_observe))
+  conclusion <- if (p_value <= alpha) "<b><i>p</i> ≤ α : résultat significatif</b>" else "<b><i>p</i> &gt; α : résultat non significatif</b>"
+  paste0("<b>", libelle_direction, "</b><br>", "α = ", format_probabilite(alpha), " &nbsp;|&nbsp; <i>p</i> = ", format_probabilite(p_value), "<br>", ligne_z_critique, "<br>", ligne_z_observe, "<br>", conclusion)
+}
+
+z_critique_initial <- seuil_depuis_probabilite(alpha_initial, direction_initiale)
+z_observe_initial <- seuil_depuis_probabilite(p_initial, direction_initiale)
+zone_alpha_initiale <- creer_zone(direction_initiale, z_critique_initial)
+zone_p_initiale <- creer_zone(direction_initiale, z_observe_initial)
+limites_alpha_initiales <- creer_limites(direction_initiale, z_critique_initial)
+limites_p_initiales <- creer_limites(direction_initiale, z_observe_initial)
+
+creer_etape <- function(valeur) list(method = "skip", label = format_probabilite(valeur), value = format_probabilite(valeur), args = list())
+curseur_p <- list(active = which.min(abs(valeurs_probabilite - p_initial)) - 1L, x = .02, len = .43, y = -.34, currentvalue = list(prefix = "<b><i>p</i>-value = </b>", xanchor = "center", font = list(size = 11.5, color = "#222222")), font = list(size = 1, color = "rgba(0,0,0,0)"), ticklen = 0, minorticklen = 0, tickwidth = 0, pad = list(t = 11), transition = list(duration = 0), steps = lapply(valeurs_probabilite, creer_etape))
+curseur_alpha <- list(active = which.min(abs(valeurs_probabilite - alpha_initial)) - 1L, x = .55, len = .43, y = -.34, currentvalue = list(prefix = "<b>Seuil α = </b>", xanchor = "center", font = list(size = 11.5, color = "#222222")), font = list(size = 1, color = "rgba(0,0,0,0)"), ticklen = 0, minorticklen = 0, tickwidth = 0, pad = list(t = 11), transition = list(duration = 0), steps = lapply(valeurs_probabilite, creer_etape))
+
+creer_bouton <- function(direction, libelle) list(method = "skip", name = direction, label = libelle, args = list(direction))
+boutons_direction <- unname(Map(creer_bouton, c("gauche", "droite", "bilateral"), c("Unilatéral gauche", "Unilatéral droit", "Bilatéral")))
+couleur_decision_initiale <- if (p_initial <= alpha_initial) couleurs$turquoise else couleurs$rouge
+
+p <- plot_ly() |>
+  add_trace(x = zone_alpha_initiale$x, y = zone_alpha_initiale$y, type = "scatter", mode = "lines", name = "Aire critique α", line = list(width = 0, color = "rgba(0,0,0,0)"), fill = "toself", fillcolor = plotly::toRGB(couleurs$rouge, alpha = .32), connectgaps = FALSE, hoverinfo = "skip") |>
+  add_trace(x = zone_p_initiale$x, y = zone_p_initiale$y, type = "scatter", mode = "lines", name = "Aire de la <i>p</i>-value", line = list(width = 0, color = "rgba(0,0,0,0)"), fill = "toself", fillcolor = plotly::toRGB(couleurs$orange, alpha = .52), connectgaps = FALSE, hoverinfo = "skip") |>
+  add_trace(x = z_normale, y = dnorm(z_normale), type = "scatter", mode = "lines", name = "Distribution sous H₀", line = list(color = couleurs$fond, width = 3), hovertemplate = paste0("<i>z</i> = %{x:.3f}<br>", "Densité = %{y:.4f}<extra></extra>")) |>
+  add_trace(x = limites_alpha_initiales$x, y = limites_alpha_initiales$y, type = "scatter", mode = "lines", line = list(color = couleurs$rouge, width = 2.2, dash = "dash"), connectgaps = FALSE, hoverinfo = "skip", showlegend = FALSE) |>
+  add_trace(x = limites_p_initiales$x, y = limites_p_initiales$y, type = "scatter", mode = "lines", line = list(color = couleurs$orange, width = 2.6), connectgaps = FALSE, hoverinfo = "skip", showlegend = FALSE) |>
+  layout(
+    width = 850, height = 285, autosize = FALSE, dragmode = FALSE, hovermode = "closest",
+    meta = list(direction_initiale = direction_initiale, alpha_initial = alpha_initial, p_initial = p_initial, couleur_significatif = couleurs$turquoise, couleur_non_significatif = couleurs$rouge),
+    title = list(text = "<b><i>p</i>-value unilatérale et bilatérale</b>", x = .5, xanchor = "center", y = .99, yanchor = "top", font = list(size = 17.5, color = "#222222")),
+    xaxis = list(domain = c(0, .70), title = list(text = "Statistique sous H₀", standoff = 3), range = c(-4, 4), fixedrange = TRUE, zeroline = FALSE),
+    yaxis = list(title = "Densité", range = c(0, .42), showticklabels = FALSE, fixedrange = TRUE, zeroline = FALSE),
+    xaxis2 = list(domain = c(.74, 1), range = c(0, 1), anchor = "y2", visible = FALSE, fixedrange = TRUE),
+    yaxis2 = list(domain = c(0, 1), range = c(0, 1), anchor = "x2", visible = FALSE, fixedrange = TRUE),
+    annotations = list(list(x = .5, y = .35, xref = "x2", yref = "y2", text = texte_etat(direction_initiale, alpha_initial, p_initial), showarrow = FALSE, xanchor = "center", yanchor = "middle", width = 188, align = "left", font = list(size = 11.2, color = "#222222"), bgcolor = "rgba(255,255,255,1)", bordercolor = couleur_decision_initiale, borderwidth = 1.4, borderpad = 9)),
+    legend = list(orientation = "h", x = .35, xanchor = "center", y = 1.03, yanchor = "bottom", font = list(size = 9.7)),
+    sliders = list(curseur_p, curseur_alpha),
+    updatemenus=list(list(type="buttons", direction="up", active=1, showactive=TRUE, x=.87, xanchor="center", y=1.12, yanchor="bottom", font=list(size=9.3, color="#222222"), bgcolor="rgba(255,255,255,1)", bordercolor=couleurs$rouge, borderwidth=1, pad=list(r=0, t=0), buttons=boutons_direction)),
+    margin = list(l = 62, r = 18, t = 82, b = 70)) |>
+  config(displayModeBar = FALSE, responsive = FALSE)
+
+javascript <- "
+function(el, x){
+  var gd=el, meta=gd.layout.meta||{}, etat={direction:meta.direction_initiale||'droite', alpha:Number(meta.alpha_initial||0.05), pvalue:Number(meta.p_initial||0.065)};
+  function densite(z){return Math.exp(-0.5*z*z)/Math.sqrt(2*Math.PI);}
+  function quantileNormal(p){var a=[-39.6968302866538,220.946098424521,-275.928510446969,138.357751867269,-30.6647980661472,2.50662827745924], b=[-54.4760987982241,161.585836858041,-155.698979859887,66.8013118877197,-13.2806815528857], c=[-0.00778489400243029,-0.322396458041136,-2.40075827716184,-2.54973253934373,4.37466414146497,2.93816398269878], d=[0.00778469570904146,0.32246712907004,2.445134137143,3.75440866190742], pBas=0.02425, pHaut=1-pBas, q, r;if(p<pBas){q=Math.sqrt(-2*Math.log(p));return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}if(p>pHaut){q=Math.sqrt(-2*Math.log(1-p));return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}q=p-0.5;r=q*q;return ((((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q)/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);}
+  function seuil(probabilite){return quantileNormal(1-(etat.direction==='bilateral'?probabilite/2:probabilite));}
+  function queue(cote, z){var n=80, debut=cote==='gauche'?-4:z, fin=cote==='gauche'?-z:4, xs=[debut], ys=[0], i, valeur;for(i=0;i<=n;i+=1){valeur=debut+(fin-debut)*i/n;xs.push(valeur);ys.push(densite(valeur));}xs.push(fin);ys.push(0);return{x:xs, y:ys};}
+  function reunir(parties){var resultat={x:[], y:[]};parties.forEach(function(partie, indice){if(indice>0){resultat.x.push(null);resultat.y.push(null);}resultat.x=resultat.x.concat(partie.x);resultat.y=resultat.y.concat(partie.y);});return resultat;}
+  function zone(z){if(etat.direction==='gauche')return queue('gauche', z);if(etat.direction==='droite')return queue('droite', z);return reunir([queue('gauche', z), queue('droite', z)]);}
+  function limites(z){var valeurs=etat.direction==='gauche'?[-z]:etat.direction==='droite'?[z]:[-z, z], resultat={x:[], y:[]};valeurs.forEach(function(valeur){resultat.x.push(valeur, valeur, null);resultat.y.push(0, densite(valeur), null);});return resultat;}
+  function formatProbabilite(valeur){return valeur.toFixed(3).replace(/^0/,'');}
+  function formatZ(valeur){return valeur.toFixed(3).replace('.',',');}
+  function mettreAJour(){var zCritique=seuil(etat.alpha), zObserve=seuil(etat.pvalue), zoneAlpha=zone(zCritique), zoneP=zone(zObserve), limitesAlpha=limites(zCritique), limitesP=limites(zObserve), bilateral=etat.direction==='bilateral', signe=etat.direction==='gauche'?'−':'', libelleDirection=etat.direction==='gauche'?'Test unilatéral gauche':etat.direction==='droite'?'Test unilatéral droit':'Test bilatéral', significatif=etat.pvalue<=etat.alpha+1e-12, conclusion=significatif?'<b><i>p</i> ≤ α : résultat significatif</b>':'<b><i>p</i> &gt; α : résultat non significatif</b>', texte='<b>'+libelleDirection+'</b><br>'+'α = '+formatProbabilite(etat.alpha)+' &nbsp;|&nbsp; <i>p</i> = '+formatProbabilite(etat.pvalue)+'<br>'+(bilateral?'<i>z</i><sub>crit</sub> = ±'+formatZ(zCritique):'<i>z</i><sub>crit</sub> = '+signe+formatZ(zCritique))+'<br>'+(bilateral?'|<i>z</i><sub>obs</sub>| = '+formatZ(zObserve):'<i>z</i><sub>obs</sub> = '+signe+formatZ(zObserve))+'<br>'+conclusion, couleurDecision=significatif?meta.couleur_significatif:meta.couleur_non_significatif;Plotly.restyle(gd,{x:[zoneAlpha.x, zoneP.x, limitesAlpha.x, limitesP.x], y:[zoneAlpha.y, zoneP.y, limitesAlpha.y, limitesP.y]},[0,1,3,4]);Plotly.relayout(gd,{'annotations[0].text':texte,'annotations[0].bordercolor':couleurDecision});}
+  gd.on('plotly_buttonclicked', function(evenement){var bouton=evenement.button||{}, direction=bouton.name;if(!direction&&bouton.args&&bouton.args.length)direction=bouton.args[0];if(['gauche','droite','bilateral'].indexOf(direction)>=0){etat.direction=direction;mettreAJour();}});
+  gd.on('plotly_sliderchange', function(evenement){var curseur=evenement.slider||{}, etape=evenement.step||{}, indice=curseur._index, valeurBrute=etape.value==null?etape.label:etape.value, valeur=Number(String(valeurBrute).replace(',','.'));if(typeof indice!=='number')indice=Number(curseur.x)<0.5?0:1;if(indice===0)etat.pvalue=valeur;else etat.alpha=valeur;mettreAJour();});
+  mettreAJour();
+}
+"
+p$elementId <- "plotly-p-value" #évite un bug de non affichage dû à la seed et au caching
+htmlwidgets::onRender(p, javascript)
+```
+:::
+
+## Intervalle de confiance (annexe) {.smaller}
+
+Un intervalle de confiance à 95 % provient d’une procédure qui, répétée sur de nombreux échantillons, produit des intervalles **contenant le paramètre populationnel dans 95 % des cas**.
+
+Sa largeur dépend de la variance des données, de la taille de l’échantillon et du taux d'erreur de type I ($\alpha$, risques de faux positifs) choisi.
+
+**Les deux bornes correspondent aux seuils de deux $t$-tests unilatéraux**. Cette idée conduit directement aux procédures TOST (*two one-sided t-tests*) utilisées pour tester une hypothèse d’équivalence à la valeur nulle.
+
+## Tester l’équivalence à l'aide du TOST (annexe) {.smaller .titre-tres-long}
+
+Le TOST définit en amont deux bornes d’équivalence $-\Delta$ et $+\Delta$ : chacune des bornes représente un seuil en termes de taille de l'effet statistique en-dessous duquel on peut dire que l'effet statistique que l'on a observé dans l'échantillon est nul en pratique (i.e., approximativement nul). L’équivalence à $H_0$ est établie lorsque l’intervalle de confiance se trouve entièrement entre ces bornes.
+
+## Trois inférences sont possibles en TOST (annexe) {.titre-tres-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:330px;"}
+```{r}
+#| label: fig-tost-interactif
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Influence de la taille d'échantillon et des bornes d'équivalence sur une procédure TOST.
+#|   <span class="note-figure"><em>Note.</em> L'effet standardisé observé est fixé à 0,25. Les contrôles permettent de modifier l'effectif total et les deux bornes de la taille d'effet minimale d'intérêt pratique. Pour un TOST avec $\alpha=.05$, l'équivalence est établie lorsque l'IC à 90 % est entièrement inclus dans l'intervalle d'équivalence.</span>
+#| fig-width: 9.4
+#| fig-height: 3.15
+#| fig-align: center
+#| out-width: "100%"
+#| echo: false
+
+estimate <- .25
+n_initial <- 80L
+borne_basse_initiale <- -.50
+borne_haute_initiale <- .50
+z90 <- qnorm(.95)
+
+etat_tost <- function(N, basse, haute){
+  se <- 2/sqrt(N)
+  demi_ic <- z90*se
+  lo <- estimate-demi_ic
+  hi <- estimate+demi_ic
+
+  if(lo >= basse && hi <= haute){
+    resultat <- "Équivalence établie"
+    couleur <- green
+  } else if(lo > haute || hi < basse){
+    resultat <- "Différence d'intérêt pratique établie"
+    couleur <- red
+  } else {
+    resultat <- "Résultat indéterminé"
+    couleur <- orange
+  }
+
+  list(
+    se=se, demi_ic=demi_ic, lo=lo, hi=hi,
+    resultat=resultat, couleur=couleur
+  )
+}
+
+format_fr <- function(x, n=2)
+  sub("\\.", ",", sprintf(paste0("%.",n,"f"),x))
+
+etat0 <- etat_tost(
+  n_initial,
+  borne_basse_initiale,
+  borne_haute_initiale
+)
+
+annotations_tost <- function(N, basse, haute, etat){
+  list(
+    list(
+      x=.36, y=.94, xref="paper", yref="paper",
+      text=paste0("<b>",etat$resultat,"</b>"),
+      showarrow=FALSE,
+      font=list(size=17, color=etat$couleur)
+    ),
+    list(
+      x=.36, y=.82, xref="paper", yref="paper",
+      text=paste0(
+        "Effet estimé = <b>",format_fr(estimate),"</b>",
+        " &nbsp;·&nbsp; IC90% = [",
+        format_fr(etat$lo)," ; ",format_fr(etat$hi),"]"
+      ),
+      showarrow=FALSE,
+      font=list(size=11.5, color=dark)
+    ),
+    list(
+      x=borne_basse_initiale, y=.25,
+      xref="x", yref="paper",
+      text=paste0("<b>",format_fr(basse),"</b>"),
+      showarrow=FALSE,
+      yanchor="top",
+      font=list(size=11, color=orange)
+    ),
+    list(
+      x=borne_haute_initiale, y=.25,
+      xref="x", yref="paper",
+      text=paste0("<b>+",format_fr(haute),"</b>"),
+      showarrow=FALSE,
+      yanchor="top",
+      font=list(size=11, color=orange)
+    ),
+    list(
+      x=(basse+haute)/2, y=.67,
+      xref="x", yref="paper",
+      text="<b>Zone d'équivalence</b>",
+      showarrow=FALSE,
+      font=list(size=11, color=green)
+    )
+  )
+}
+
+formes_tost <- function(basse, haute){
+  list(
+    list(
+      type="rect", xref="x", yref="paper",
+      x0=basse, x1=haute, y0=.34, y1=.67,
+      fillcolor=plotly::toRGB(green,.13),
+      line=list(width=0),
+      layer="below"
+    ),
+    list(
+      type="line", xref="x", yref="paper",
+      x0=0, x1=0, y0=.28, y1=.73,
+      line=list(color=dark, width=2)
+    ),
+    list(
+      type="line", xref="x", yref="paper",
+      x0=basse, x1=basse, y0=.28, y1=.73,
+      line=list(color=orange, width=2.5, dash="dash")
+    ),
+    list(
+      type="line", xref="x", yref="paper",
+      x0=haute, x1=haute, y0=.28, y1=.73,
+      line=list(color=orange, width=2.5, dash="dash")
+    )
+  )
+}
+
+texte_survol <- paste0(
+  "<b>Effet estimé = ",format_fr(estimate),"</b>",
+  "<br>IC90% = [",format_fr(etat0$lo)," ; ",
+  format_fr(etat0$hi),"]",
+  "<br>N = ",n_initial
+)
+
+p <- plot_ly(source="tost-interactif") |>
+  add_trace(
+    x=estimate, y=1,
+    type="scatter", mode="markers",
+    text=texte_survol,
+    hovertemplate="%{text}<extra></extra>",
+    marker=list(
+      size=15,
+      color=etat0$couleur,
+      line=list(color="white",width=1.5)
+    ),
+    error_x=list(
+      type="data",
+      symmetric=TRUE,
+      array=etat0$demi_ic,
+      thickness=4,
+      width=12,
+      color=etat0$couleur
+    ),
+    showlegend=FALSE
+  ) |>
+  layout(
+    width=850, height=305,
+    autosize=FALSE,
+    dragmode=FALSE,
+    hovermode="closest",
+    font=list(family="CMU Serif",color=dark),
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+
+    xaxis=list(
+      domain=c(.03,.70),
+      range=c(-1.20,1.20),
+      tickmode="array",
+      tickvals=c(-1,-.5,0,.5,1),
+      ticktext=c("−1,0","−0,5","0","+0,5","+1,0"),
+      title=list(
+        text="<b>Effet standardisé estimé</b>",
+        font=list(size=13),
+        standoff=8
+      ),
+      tickfont=list(size=11),
+      fixedrange=TRUE,
+      zeroline=FALSE,
+      showgrid=FALSE
+    ),
+
+    yaxis=list(
+      domain=c(.28,.74),
+      range=c(.5,1.5),
+      visible=FALSE,
+      fixedrange=TRUE
+    ),
+
+    annotations=annotations_tost(
+      n_initial,
+      borne_basse_initiale,
+      borne_haute_initiale,
+      etat0
+    ),
+
+    shapes=formes_tost(
+      borne_basse_initiale,
+      borne_haute_initiale
+    ),
+
+    margin=list(l=25,r=15,t=10,b=42,pad=0)
+  ) |>
+  config(displayModeBar=FALSE,responsive=FALSE)
+
+htmlwidgets::onRender(
+  p,
+"
+function(el,x,data){
+
+  if(el.querySelector('.tost-controls')) return;
+
+  const estimate=data.estimate;
+  const z90=data.z90;
+  const colours=data.colours;
+
+  el.style.position='relative';
+
+  const panel=document.createElement('div');
+  panel.className='tost-controls';
+  panel.style.cssText=
+    'position:absolute;right:8px;top:49px;width:225px;'+
+    'padding:8px 10px;background:rgba(255,255,255,.96);'+
+    'border:1px solid #bbb;border-radius:7px;'+
+    'font-family:CMU Serif,serif;font-size:11px;line-height:1.15;'+
+    'box-sizing:border-box;z-index:20;';
+
+  panel.innerHTML=`
+    <div style='font-size:12px;font-weight:bold;margin-bottom:8px;text-align:center;'>
+      Paramètres de la procédure
+    </div>
+
+    <label style='display:block;margin-bottom:9px;'>
+      <span><b>Taille totale :</b> N = <output class='out-n'>80</output></span>
+      <input class='ctrl-n' type='range'
+        min='20' max='600' step='10' value='80'
+        style='display:block;width:100%;margin-top:3px;'>
+    </label>
+
+    <label style='display:block;margin-bottom:9px;'>
+      <span><b>Borne basse :</b> <output class='out-low'>−0,50</output></span>
+      <input class='ctrl-low' type='range'
+        min='-1' max='-0.05' step='0.05' value='-0.50'
+        style='display:block;width:100%;margin-top:3px;'>
+    </label>
+
+    <label style='display:block;'>
+      <span><b>Borne haute :</b> <output class='out-high'>+0,50</output></span>
+      <input class='ctrl-high' type='range'
+        min='0.05' max='1' step='0.05' value='0.50'
+        style='display:block;width:100%;margin-top:3px;'>
+    </label>
+
+    <div style='margin-top:8px;padding-top:6px;border-top:1px solid #ddd;
+                font-size:9.5px;color:#555;text-align:center;'>
+      TOST à α = .05 → IC à 90 %
+    </div>
+  `;
+
+  el.appendChild(panel);
+
+  const sN=panel.querySelector('.ctrl-n');
+  const sLow=panel.querySelector('.ctrl-low');
+  const sHigh=panel.querySelector('.ctrl-high');
+
+  const oN=panel.querySelector('.out-n');
+  const oLow=panel.querySelector('.out-low');
+  const oHigh=panel.querySelector('.out-high');
+
+  function fr(v,n=2){
+    return Number(v).toFixed(n).replace('.',',');
+  }
+
+  function signed(v){
+    const z=Number(v);
+    return (z>0?'+':z<0?'−':'')+fr(Math.abs(z));
+  }
+
+  function actualiser(){
+
+    const N=Number(sN.value);
+    const low=Number(sLow.value);
+    const high=Number(sHigh.value);
+
+    const se=2/Math.sqrt(N);
+    const half=z90*se;
+    const lo=estimate-half;
+    const hi=estimate+half;
+
+    let state, colour;
+
+    if(lo>=low && hi<=high){
+      state='Équivalence établie';
+      colour=colours.green;
+    } else if(lo>high || hi<low){
+      state=\"Différence d'intérêt pratique établie\";
+      colour=colours.red;
+    } else {
+      state='Résultat indéterminé';
+      colour=colours.orange;
+    }
+
+    oN.textContent=N;
+    oLow.textContent=signed(low);
+    oHigh.textContent=signed(high);
+
+    const hover=
+      '<b>Effet estimé = '+fr(estimate)+'</b>'+
+      '<br>IC90% = ['+fr(lo)+' ; '+fr(hi)+']'+
+      '<br>N = '+N;
+
+    Plotly.restyle(
+      el,
+      {
+        text:[[hover]],
+        'marker.color':[colour],
+        'error_x.array':[[half]],
+        'error_x.color':[colour]
+      },
+      [0]
+    );
+
+    const annotations=[
+      {
+        x:.36,y:.94,xref:'paper',yref:'paper',
+        text:'<b>'+state+'</b>',
+        showarrow:false,
+        font:{size:17,color:colour}
+      },
+      {
+        x:.36,y:.82,xref:'paper',yref:'paper',
+        text:'Effet estimé = <b>'+fr(estimate)+'</b>'+
+             ' &nbsp;·&nbsp; IC90% = ['+fr(lo)+' ; '+fr(hi)+']',
+        showarrow:false,
+        font:{size:11.5,color:colours.dark}
+      },
+      {
+        x:low,y:.25,xref:'x',yref:'paper',
+        text:'<b>'+signed(low)+'</b>',
+        showarrow:false,yanchor:'top',
+        font:{size:11,color:colours.orange}
+      },
+      {
+        x:high,y:.25,xref:'x',yref:'paper',
+        text:'<b>'+signed(high)+'</b>',
+        showarrow:false,yanchor:'top',
+        font:{size:11,color:colours.orange}
+      },
+      {
+        x:(low+high)/2,y:.67,xref:'x',yref:'paper',
+        text:\"<b>Zone d'équivalence</b>\",
+        showarrow:false,
+        font:{size:11,color:colours.green}
+      }
+    ];
+
+    const shapes=[
+      {
+        type:'rect',xref:'x',yref:'paper',
+        x0:low,x1:high,y0:.34,y1:.67,
+        fillcolor:'rgba(42,157,143,.13)',
+        line:{width:0},
+        layer:'below'
+      },
+      {
+        type:'line',xref:'x',yref:'paper',
+        x0:0,x1:0,y0:.28,y1:.73,
+        line:{color:colours.dark,width:2}
+      },
+      {
+        type:'line',xref:'x',yref:'paper',
+        x0:low,x1:low,y0:.28,y1:.73,
+        line:{color:colours.orange,width:2.5,dash:'dash'}
+      },
+      {
+        type:'line',xref:'x',yref:'paper',
+        x0:high,x1:high,y0:.28,y1:.73,
+        line:{color:colours.orange,width:2.5,dash:'dash'}
+      }
+    ];
+
+    Plotly.relayout(el,{
+      annotations:annotations,
+      shapes:shapes
+    });
+  }
+
+  [sN,sLow,sHigh].forEach(
+    s=>s.addEventListener('input',actualiser)
+  );
+
+  ['pointerdown','click','keydown'].forEach(
+    type=>panel.addEventListener(type,e=>e.stopPropagation())
+  );
+
+  actualiser();
+}
+",
+  data=list(
+    estimate=estimate,
+    z90=z90,
+    colours=list(
+      green=green,
+      orange=orange,
+      red=red,
+      dark=dark
+    )
+  )
+)
+```
+:::
+
+## Écart-type, *se* et IC (annexe) {.smaller .titre-tres-long}
+
+Ces trois quantités ont la même unité que la VD, mais ne décrivent pas la même chose : $s$ décrit la dispersion des observations empiriques ; $se$ décrit la précision de la moyenne $m$ d'échantillon pour estimer la moyenne $\mu$ de la population et l’IC exprime cette précision sous la forme d’un intervalle.
+
+::: {style="font-size: 0.85em;"}
+| Quantité | Mesure | Formule | Question posée | Comportement si $N \to +\infty$ |
+|:---:|:---:|:---:|:---:|:---:|
+| $s$<br>Écart-type | Dispersion des **observations individuelles** autour de $m$ | $\displaystyle s=\sqrt{\frac{\sum_{i=1}^{N}(y_i-\bar y)^2}{N-1}}$ | Les participants diffèrent-ils beaucoup les uns des autres ? | Ne diminue pas nécessairement |
+| $se$<br>Erreur standard | Dispersion attendue des **moyennes** $m$ **d’échantillon** autour de la moyenne $\mu$ de population | $\displaystyle se =\frac{s}{\sqrt n}$ | Avec quelle précision la moyenne est-elle estimée ? | Divisée par 2 quand $N$ est multiplié par 4 |
+| IC à 1-$\alpha$% | Valeurs de $\mu$ compatibles avec l’estimation $m$ et son incertitude $se$ | $95\%CI \approx m \pm 1.96\times se$ si $N$ suffisamment grand et $m$ pas trop proche d'une borne | Quelles valeurs de $\mu$ restent plausibles ? | Se resserre quand $se$ diminue |
+:::
+
+## α, β, taille d’effet et puissance (à apprendre) {.smaller .titre-tres-long}
+
+→ Le risque $\alpha$ est la probabilité d’une **erreur de type I** : déclarer un effet alors qu’il n’existe pas dans la population (on fait un faux positif).
+
+→ Le risque $\beta$ est la probabilité d’une **erreur de type II** : manquer un effet qui existe dans la population (on fait un faux négatif).
+
+→ La **taille d’effet** décrit l’ampleur de l’effet et sa pertinence pratique. Elle peut être brute ou standardisée.
+
+→ La **puissance statistique** est la probabilité de détecter un effet qui existe : $\text{Puissance}=1-\beta$. Elle dépend d'$\alpha$, de la taille d’effet, de la variabilité et de la taille de l’échantillon.
+
+Le principe d'une analyse de puissance *a priori*, comme elle est effectuée dans le cadre fréquentiste de Neyman-Pearson consiste à chercher la taille d'échantillon $N$ pour un effet ayant une taille d'effet $d$ (présupposée à partir de la littérature ou d'un pré-test), et à chercher la valeur de $N$ nécessaire pour tester l'effet avec tel taux d'erreur de type I et de type II souhaités.

@@ -1,0 +1,473 @@
+```{=html}
+<style>
+/* Mise en page compacte pour une diapositive RevealJS de 960 × 540 px. */
+#ss-anova-slide{
+  --ss-fg:var(--r-main-color,var(--foreground,currentColor));
+  --ss-muted:color-mix(in srgb,var(--ss-fg) 62%,transparent);
+  --ss-accent:var(--r-link-color,#d97706);
+  display:grid;
+  gap:.42rem;
+  width:100%;
+  margin:0;
+  color:var(--ss-fg)
+}
+#ss-anova-slide *{box-sizing:border-box}
+#ss-anova-slide strong,
+#ss-anova-slide .table th{font-weight:500}
+#ss-anova-slide .ss-head,
+#ss-anova-slide .ss-controls,
+#ss-anova-slide .ss-caption,
+#ss-anova-slide .ss-foot{display:flex;align-items:center;flex-wrap:wrap;gap:.35rem .75rem}
+#ss-anova-slide .ss-head,
+#ss-anova-slide .ss-controls,
+#ss-anova-slide .ss-caption,
+#ss-anova-slide .ss-foot{justify-content:space-between}
+#ss-anova-slide .ss-formula{font-weight:500;white-space:nowrap}
+#ss-anova-slide .ss-field{display:flex;align-items:center;gap:.3rem;margin:0}
+#ss-anova-slide .ss-caption,
+#ss-anova-slide .ss-foot{color:var(--ss-muted);font-weight:400}
+#ss-anova-slide .ss-caption{margin:0}
+#ss-anova-slide .ss-decision{display:grid;gap:.12rem;min-height:2.35em}
+#ss-anova-slide .ss-recommendation{font-weight:500;color:var(--ss-fg)}
+#ss-anova-slide .ss-decision-reason,
+#ss-anova-slide .ss-control-note{color:var(--ss-muted);font-weight:400}
+#ss-anova-slide .ss-recommendation-symbol{color:var(--ss-accent)}
+#ss-anova-slide .ss-tables{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;align-items:start}
+#ss-anova-slide .ss-table-block{min-width:0}
+#ss-anova-slide .ss-table-block.ss-excluded{opacity:.48}
+#ss-anova-slide .ss-choice{min-height:1.15em;margin-bottom:.05rem;text-align:center;font-weight:500}
+#ss-anova-slide .ss-choice-recommended{color:var(--ss-accent)}
+#ss-anova-slide .ss-choice-equivalent,
+#ss-anova-slide .ss-choice-possible{color:var(--ss-muted)}
+#ss-anova-slide .ss-choice-excluded{color:var(--destructive,var(--red,var(--ss-accent)))}
+#ss-anova-slide .ss-table-title{display:flex;align-items:baseline;justify-content:space-between;gap:.3rem;margin:0 0 .15rem;font-weight:500}
+#ss-anova-slide .ss-table-subtitle{color:var(--ss-muted);font-weight:400}
+#ss-anova-slide .ss-disabled{opacity:.5}
+#ss-anova-slide .table{width:100%;margin:0}
+#ss-anova-slide .table th,
+#ss-anova-slide .table td{white-space:nowrap}
+#ss-anova-slide .table th:first-child,
+#ss-anova-slide .table td:first-child{text-align:left}
+/* Le premier fond sert de repli. Le second suit la couleur du thème RevealJS. */
+#ss-anova-slide .ss-diff{
+  background-color:rgba(217,119,6,.22)!important;
+  box-shadow:inset 0 0 0 1px rgba(217,119,6,.42);
+  font-weight:500
+}
+@supports (background-color:color-mix(in srgb,currentColor 20%,transparent)){
+  #ss-anova-slide .ss-diff{
+    background-color:color-mix(in srgb,var(--r-link-color,#d97706) 24%,transparent)!important;
+    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--r-link-color,#d97706) 42%,transparent)
+  }
+}
+#ss-anova-slide .ss-total-row{border-top:1px solid color-mix(in srgb,var(--ss-fg) 35%,transparent)}
+#ss-anova-slide [hidden]{display:none!important}
+@media(max-width:680px){
+  #ss-anova-slide .ss-tables{grid-template-columns:1fr}
+  #ss-anova-slide .ss-controls{justify-content:flex-start}
+}
+.reveal #ss-anova-slide{gap:5px;font-size:12.2px;line-height:1.06}
+.reveal #ss-anova-slide .ss-controls{gap:4px 8px}
+.reveal #ss-anova-slide .table th,
+.reveal #ss-anova-slide .table td{padding:3px 2.5px;font-size:9.8px}
+.reveal #ss-anova-slide .ss-table-title{font-size:13px}
+.reveal #ss-anova-slide .ss-choice,
+.reveal #ss-anova-slide .ss-caption,
+.reveal #ss-anova-slide .ss-foot,
+.reveal #ss-anova-slide .ss-control-note,
+.reveal #ss-anova-slide .ss-decision-reason{font-size:11px}
+</style>
+
+<figure id="ss-anova-slide" aria-label="Comparaison interactive des tables d’ANOVA de types I, II et III">
+  <!-- Le modèle et les effectifs résument immédiatement l’état choisi. -->
+  <div class="ss-head">
+    <span class="ss-formula" data-role="formula">RT<sub>cum</sub> = b<sub>0</sub> + b<sub>1</sub> P + b<sub>2</sub> S</span>
+    <span class="viz-badge" data-role="cells">Effectifs : Alzheimer–Homme (n = 18) · Alzheimer–Femme (n = 6) · DCL–Homme (n = 8) · DCL–Femme (n = 16)</span>
+  </div>
+
+  <!-- La caption relie les symboles du modèle aux variables et à leurs modalités. -->
+  <figcaption class="ss-caption">
+    <span><strong>P</strong> = pathologie (Alzheimer ou DCL) ; <strong>S</strong> = sexe (Homme ou Femme) ; <strong>A</strong> = âge centré.</span>
+    <span><strong>Effectifs</strong> indique le nombre de personnes dans chaque croisement Pathologie × Sexe.</span>
+  </figcaption>
+
+  <!-- Les contrôles suivent directement les règles de choix des SC. -->
+  <div class="viz-controls ss-controls" aria-label="Paramètres de l’ANOVA">
+    <label class="ss-field form-label">Plan
+      <select class="form-select" data-role="balance">
+        <option value="unbalanced">Déséquilibré</option>
+        <option value="balanced">Équilibré</option>
+      </select>
+    </label>
+    <label class="form-check form-switch">
+      <input id="ss-covariate" class="form-check-input" type="checkbox" data-role="covariate">
+      <span class="form-check-label">Covariable Âge</span>
+    </label>
+    <label class="ss-field form-label">Interaction
+      <select class="form-select" data-role="interaction">
+        <option value="none">Absence établie</option>
+        <option value="test">À tester</option>
+      </select>
+    </label>
+    <label class="form-check form-switch" data-role="order-toggle-field">
+      <input id="ss-order-justified" class="form-check-input" type="checkbox" data-role="order-justified">
+      <span class="form-check-label">Ordre théorique a priori</span>
+    </label>
+    <label class="ss-field form-label" data-role="order-field">Ordre
+      <select class="form-select" data-role="order" aria-label="Ordre théorique d’entrée des variables">
+        <option value="PS">Pathologie → Sexe</option>
+        <option value="SP">Sexe → Pathologie</option>
+      </select>
+    </label>
+  </div>
+  <div class="ss-control-note" data-role="control-note">
+    Plan déséquilibré : le type I est écarté.
+  </div>
+
+  <!-- Une recommandation et une justification courtes remplacent les règles concurrentes. -->
+  <div class="ss-decision" aria-live="polite">
+    <div class="ss-recommendation">
+      <span class="ss-recommendation-symbol" aria-hidden="true">★</span>
+      <span data-role="recommendation">Type II recommandé.</span>
+    </div>
+    <div class="ss-decision-reason" data-role="decision-reason">
+      Données déséquilibrées et absence d’interaction établie : le type II est plus puissant pour les effets marginaux.
+    </div>
+  </div>
+
+  <!-- Des div sont utilisées : RevealJS ne les transforme pas en sous-slides. -->
+  <div class="ss-tables" aria-live="polite">
+    <div class="ss-table-block" data-type-block="I" role="group" aria-labelledby="ss-table-i-title">
+      <div class="ss-choice ss-choice-excluded" data-role="choice-I">× à écarter</div>
+      <div class="ss-table-title" id="ss-table-i-title"><span>Type I</span><span class="ss-table-subtitle" data-role="type-i-label">séquentiel · P → S</span></div>
+      <div class="table-responsive">
+        <table class="table table-sm" data-table="I">
+          <thead><tr><th>Source</th><th class="text-end">SC</th><th class="text-end">ddl</th><th class="text-end">F</th><th class="text-end">p</th><th class="text-end"><span aria-label="oméga carré partiel">ω<sub>p</sub><sup>2</sup></span></th><th class="text-end"><span aria-label="oméga carré">ω<sup>2</sup></span></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="ss-table-block" data-type-block="II" role="group" aria-labelledby="ss-table-ii-title">
+      <div class="ss-choice ss-choice-recommended" data-role="choice-II">★ recommandé</div>
+      <div class="ss-table-title" id="ss-table-ii-title"><span>Type II</span><span class="ss-table-subtitle">marginal</span></div>
+      <div class="table-responsive">
+        <table class="table table-sm" data-table="II">
+          <thead><tr><th>Source</th><th class="text-end">SC</th><th class="text-end">ddl</th><th class="text-end">F</th><th class="text-end">p</th><th class="text-end"><span aria-label="oméga carré partiel">ω<sub>p</sub><sup>2</sup></span></th><th class="text-end"><span aria-label="oméga carré">ω<sup>2</sup></span></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="ss-table-block" data-type-block="III" role="group" aria-labelledby="ss-table-iii-title">
+      <div class="ss-choice ss-choice-possible" data-role="choice-III">○ possible</div>
+      <div class="ss-table-title" id="ss-table-iii-title"><span>Type III</span><span class="ss-table-subtitle">partiel</span></div>
+      <div class="table-responsive">
+        <table class="table table-sm" data-table="III">
+          <thead><tr><th>Source</th><th class="text-end">SC</th><th class="text-end">ddl</th><th class="text-end">F</th><th class="text-end">p</th><th class="text-end"><span aria-label="oméga carré partiel">ω<sub>p</sub><sup>2</sup></span></th><th class="text-end"><span aria-label="oméga carré">ω<sup>2</sup></span></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="ss-foot">
+    <span data-role="message">Sans interaction, les types II et III coïncident ; le type I dépend de l’ordre.</span>
+    <span>Fond orange : SC différentes. Le type III est souvent le défaut logiciel, malgré sa violation du principe de marginalité.</span>
+  </div>
+</figure>
+
+<script>
+(() => {
+  "use strict";
+  const root=document.getElementById("ss-anova-slide");
+  if(!root||root.dataset.initialised==="true") return;
+  const q=selector=>root.querySelector(selector);
+  const controls={
+    balance:q('[data-role="balance"]'),
+    interaction:q('[data-role="interaction"]'),
+    covariate:q('[data-role="covariate"]'),
+    orderJustified:q('[data-role="order-justified"]'),
+    order:q('[data-role="order"]')
+  };
+  if(Object.values(controls).some(control=>!control)) return;
+
+  const state={balance:"unbalanced",interaction:false,covariate:false,orderJustified:false,order:"PS"};
+  const labels={P:"Pathologie",S:"Sexe",A:"Âge",PS:"Pathologie × Sexe"};
+  const orderLabels={P:"Pathologie",S:"Sexe",A:"Âge"};
+
+  /* Génère 48 observations déterministes. P et S utilisent des contrastes à somme nulle.
+     A est une mesure d’âge centrée et corrélée aux groupes pour rendre son ajustement visible. */
+  function makeData(){
+    const counts=state.balance==="balanced"?[12,12,12,12]:[18,6,8,16];
+    const rows=[];
+    let id=0;
+    [[-1,-1],[-1,1],[1,-1],[1,1]].forEach(([P,S],cell)=>{
+      const n=counts[cell];
+      for(let k=0;k<n;k++){
+        const z=(k-(n-1)/2)/Math.max(1,(n-1)/2);
+        const A=.72*P-.48*S+.18*P*S+1.05*z+.16*Math.sin((k+1)*1.7+cell);
+        const random=2.25*Math.sin((id+1)*1.91)+1.15*Math.cos((id+1)*.73);
+        rows.push({P,S,A,PS:P*S,Y:42+3.1*P+1.7*S+2.35*P*S+3.4*A+random});
+        id++;
+      }
+    });
+    return {rows,counts};
+  }
+
+  /* Résout un petit système linéaire par pivot de Gauss. */
+  function solve(matrix,vector){
+    const n=vector.length;
+    const augmented=matrix.map((row,index)=>[...row,vector[index]]);
+    for(let column=0;column<n;column++){
+      let pivot=column;
+      for(let row=column+1;row<n;row++) if(Math.abs(augmented[row][column])>Math.abs(augmented[pivot][column])) pivot=row;
+      [augmented[column],augmented[pivot]]=[augmented[pivot],augmented[column]];
+      const divisor=augmented[column][column];
+      if(Math.abs(divisor)<1e-10) return Array(n).fill(0);
+      for(let j=column;j<=n;j++) augmented[column][j]/=divisor;
+      for(let row=0;row<n;row++) if(row!==column){
+        const factor=augmented[row][column];
+        for(let j=column;j<=n;j++) augmented[row][j]-=factor*augmented[column][j];
+      }
+    }
+    return augmented.map(row=>row[n]);
+  }
+
+  /* Ajuste RTcum ~ b0 + termes et renvoie la somme des carrés aléatoire. */
+  function sse(rows,terms){
+    const design=rows.map(row=>[1,...terms.map(term=>row[term])]);
+    const columns=design[0].length;
+    const cross=Array.from({length:columns},()=>Array(columns).fill(0));
+    const product=Array(columns).fill(0);
+    design.forEach((line,index)=>{
+      for(let a=0;a<columns;a++){
+        product[a]+=line[a]*rows[index].Y;
+        for(let b=0;b<columns;b++) cross[a][b]+=line[a]*line[b];
+      }
+    });
+    const beta=solve(cross,product);
+    return rows.reduce((sum,row,index)=>{
+      const fitted=design[index].reduce((value,x,j)=>value+x*beta[j],0);
+      return sum+(row.Y-fitted)**2;
+    },0);
+  }
+
+  /* Fonctions numériques nécessaires au calcul de la probabilité d’une loi F. */
+  function logGamma(z){const c=[676.5203681218851,-1259.1392167224028,771.3234287776531,-176.6150291621406,12.507343278686905,-.13857109526572012,9.984369578019572e-6,1.5056327351493116e-7];if(z<.5)return Math.log(Math.PI)-Math.log(Math.sin(Math.PI*z))-logGamma(1-z);z-=1;let x=.9999999999998099;for(let i=0;i<c.length;i++)x+=c[i]/(z+i+1);const t=z+c.length-.5;return .5*Math.log(2*Math.PI)+(z+.5)*Math.log(t)-t+Math.log(x)}
+  function betaFraction(a,b,x){let qab=a+b,qap=a+1,qam=a-1,c=1,d=1-qab*x/qap;if(Math.abs(d)<3e-14)d=3e-14;d=1/d;let h=d;for(let m=1;m<=120;m++){const m2=2*m;let aa=m*(b-m)*x/((qam+m2)*(a+m2));d=1+aa*d;if(Math.abs(d)<3e-14)d=3e-14;c=1+aa/c;if(Math.abs(c)<3e-14)c=3e-14;d=1/d;h*=d*c;aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));d=1+aa*d;if(Math.abs(d)<3e-14)d=3e-14;c=1+aa/c;if(Math.abs(c)<3e-14)c=3e-14;d=1/d;const next=d*c;h*=next;if(Math.abs(next-1)<3e-10)break}return h}
+  function ibeta(x,a,b){if(x<=0)return 0;if(x>=1)return 1;const front=Math.exp(logGamma(a+b)-logGamma(a)-logGamma(b)+a*Math.log(x)+b*Math.log(1-x));return x<(a+1)/(a+b+2)?front*betaFraction(a,b,x)/a:1-front*betaFraction(b,a,1-x)/b}
+  function pF(F,df1,df2){return Math.max(0,Math.min(1,1-ibeta((df1*F)/(df1*F+df2),df1/2,df2/2)))}
+
+  /* Calcule les SC selon les trois définitions : séquentielle, marginale et partielle. */
+  function analyse(rows){
+    const mains=state.covariate?["P","S","A"]:["P","S"];
+    const final=[...mains,...(state.interaction?["PS"]:[])];
+    const residual=sse(rows,final);
+    const total=sse(rows,[]);
+    const dfError=rows.length-(1+final.length);
+    const dfTotal=rows.length-1;
+    const mse=residual/dfError;
+    const iTerms=[...[...state.order],...(state.covariate?["A"]:[]),...(state.interaction?["PS"]:[])];
+    const out={I:{},II:{},III:{},residual,total,dfError,dfTotal,mse,terms:final,iTerms};
+    let entered=[];
+    iTerms.forEach(term=>{
+      const before=sse(rows,entered);
+      entered.push(term);
+      out.I[term]=Math.max(0,before-sse(rows,entered));
+    });
+    final.forEach(term=>{
+      let fullII;
+      let reducedII;
+      if(state.interaction&&(term==="P"||term==="S")){
+        fullII=mains;
+        reducedII=mains.filter(candidate=>candidate!==term);
+      }else{
+        fullII=final;
+        reducedII=final.filter(candidate=>candidate!==term);
+      }
+      out.II[term]=Math.max(0,sse(rows,reducedII)-sse(rows,fullII));
+      out.III[term]=Math.max(0,sse(rows,final.filter(candidate=>candidate!==term))-residual);
+    });
+    return out;
+  }
+
+  /* ωp² et ω² restent signés : une estimation négative traduit un effet estimé très faible. */
+  function effectSizes(ss,df,result){
+    const corrected=ss-df*result.mse;
+    const omegaPartial=corrected/(ss+result.residual+result.mse);
+    const omega=corrected/(result.total+result.mse);
+    return {omegaPartial,omega};
+  }
+
+  const fmt=value=>value.toLocaleString("fr-FR",{minimumFractionDigits:1,maximumFractionDigits:1});
+  const fmtEffect=value=>value.toLocaleString("fr-FR",{minimumFractionDigits:3,maximumFractionDigits:3});
+  const fmtP=value=>value<.001?"< .001":value.toLocaleString("fr-FR",{minimumFractionDigits:3,maximumFractionDigits:3});
+
+  function appendRow(body,values,options={}){
+    const row=document.createElement("tr");
+    if(options.total) row.classList.add("ss-total-row");
+    values.forEach((value,index)=>{
+      const cell=document.createElement(index===0?"th":"td");
+      cell.textContent=value;
+      if(index===0) cell.scope="row";
+      else cell.classList.add("text-end");
+      if(options.highlight&&index===1) cell.classList.add("ss-diff");
+      row.appendChild(cell);
+    });
+    body.appendChild(row);
+  }
+
+  /* Construit une table ANOVA, les deux omégas, l’aléatoire et le total corrigé. */
+  function renderTable(type,result,different){
+    const body=q(`[data-table="${type}"] tbody`);
+    body.replaceChildren();
+    const terms=type==="I"?result.iTerms:result.terms;
+    terms.forEach(term=>{
+      const df=1;
+      const ss=result[type][term];
+      const F=ss/result.mse;
+      const effects=effectSizes(ss,df,result);
+      appendRow(body,[labels[term],fmt(ss),String(df),fmt(F),fmtP(pF(F,df,result.dfError)),fmtEffect(effects.omegaPartial),fmtEffect(effects.omega)],{highlight:different.has(term)});
+    });
+    appendRow(body,["Aléatoire",fmt(result.residual),String(result.dfError),"—","—","—","—"]);
+    appendRow(body,["Total",fmt(result.total),String(result.dfTotal),"—","—","—","—"],{total:true});
+  }
+
+  /*
+   * Une covariable rend la matrice de design non orthogonale dans cette
+   * démonstration. L’ordre théorique n’est accessible que pour un plan
+   * équilibré sans covariable.
+   */
+  function syncControls(){
+    if(state.covariate) state.balance="unbalanced";
+    controls.balance.value=state.balance;
+    controls.balance.disabled=state.covariate;
+
+    const orderAllowed=state.balance==="balanced"&&!state.covariate;
+    if(!orderAllowed){
+      state.orderJustified=false;
+      state.order="PS";
+    }
+    controls.orderJustified.checked=state.orderJustified;
+    controls.orderJustified.disabled=!orderAllowed;
+    controls.order.disabled=!orderAllowed||!state.orderJustified;
+    controls.order.value=state.order;
+
+    q('[data-role="order-toggle-field"]').classList.toggle("ss-disabled",!orderAllowed);
+    q('[data-role="order-field"]').classList.toggle("ss-disabled",controls.order.disabled);
+
+    q('[data-role="control-note"]').textContent=state.covariate
+      ?"La covariable Âge rend la matrice de design non orthogonale : plan traité comme déséquilibré et type I écarté."
+      :state.balance==="unbalanced"
+        ?"Plan déséquilibré : le type I est écarté."
+        :"Plan équilibré sans covariable : les trois types donnent normalement les mêmes SC.";
+  }
+
+  function formulaHTML(){
+    const terms=["P","S",...(state.covariate?["A"]:[]),...(state.interaction?["P × S"]:[])];
+    return `RT<sub>cum</sub> = b<sub>0</sub>${terms.map((term,index)=>` + b<sub>${index+1}</sub> ${term}`).join("")}`;
+  }
+
+  /* Trois branches suffisent : orthogonal, déséquilibré additif, interaction. */
+  function recommendation(){
+    const orthogonal=state.balance==="balanced"&&!state.covariate;
+
+    if(orthogonal&&state.orderJustified) return {
+      available:["I","II","III"],
+      statuses:{I:"★ question séquentielle",II:"≈ même résultat",III:"≈ même résultat"},
+      text:"Type I pour la question séquentielle.",
+      reason:"Le plan est équilibré et sans covariable. L’ordre théorique est justifié a priori ; les trois types restent numériquement équivalents."
+    };
+
+    if(orthogonal) return {
+      available:["I","II","III"],
+      statuses:{I:"≈ équivalent",II:"≈ équivalent",III:"≈ équivalent"},
+      text:"Types I, II et III équivalents.",
+      reason:"Le plan factoriel est équilibré et sans covariable : le choix ne change normalement pas le résultat. Le type I n’apporte une question distincte que si l’ordre est justifié a priori."
+    };
+
+    if(state.interaction) return {
+      available:["III"],
+      statuses:{I:"× à écarter",II:"× à écarter",III:"★ recommandé"},
+      text:"Type III recommandé.",
+      reason:"Les données sont déséquilibrées et une interaction doit être testée, qu’elle soit significative ou non."
+    };
+
+    return {
+      available:["II","III"],
+      statuses:{I:"× à écarter",II:"★ recommandé",III:"○ possible"},
+      text:"Type II recommandé.",
+      reason:"Les données sont déséquilibrées et l’absence d’interaction est établie : le type II est plus puissant pour les effets marginaux."
+    };
+  }
+
+  function renderRecommendation(){
+    const choice=recommendation();
+    q('[data-role="recommendation"]').textContent=choice.text;
+    q('[data-role="decision-reason"]').textContent=choice.reason;
+    ["I","II","III"].forEach(type=>{
+      const block=q(`[data-type-block="${type}"]`);
+      const available=choice.available.includes(type);
+      block.classList.toggle("ss-excluded",!available);
+      const label=q(`[data-role="choice-${type}"]`);
+      const status=choice.statuses[type];
+      label.textContent=status;
+      label.className="ss-choice";
+      label.classList.add(
+        status.startsWith("★")?"ss-choice-recommended":
+        status.startsWith("×")?"ss-choice-excluded":
+        status.startsWith("≈")?"ss-choice-equivalent":
+        "ss-choice-possible"
+      );
+      block.setAttribute("aria-disabled",String(!available));
+      block.setAttribute("aria-label",`Type ${type} : ${status.replace(/^[★×≈○] /,"")}`);
+    });
+    return choice;
+  }
+
+  /* Met à jour les trois tables depuis un seul état afin de garantir leur comparabilité. */
+  function render(){
+    syncControls();
+    const {rows,counts}=makeData();
+    const result=analyse(rows);
+    const different=new Set();
+    result.terms.forEach(term=>{
+      const values=[result.I[term],result.II[term],result.III[term]];
+      const scale=Math.max(1,...values.map(Math.abs));
+      if(Math.max(...values)-Math.min(...values)>scale*1e-6) different.add(term);
+    });
+    ["I","II","III"].forEach(type=>renderTable(type,result,different));
+    q('[data-role="formula"]').innerHTML=formulaHTML();
+    const cellLabels=["Alzheimer–Homme","Alzheimer–Femme","DCL–Homme","DCL–Femme"];
+    q('[data-role="cells"]').textContent=`Effectifs : ${cellLabels.map((label,index)=>`${label} (n = ${counts[index]})`).join(" · ")}`;
+    q('[data-role="type-i-label"]').textContent=`séquentiel · ${[...state.order].map(term=>orderLabels[term]).join(" → ")}`;
+    const choice=renderRecommendation();
+
+    q('[data-role="message"]').textContent=choice.available.length===3
+      ?"Plan orthogonal : aucun fond orange, car les trois types attribuent les mêmes SC."
+      :state.interaction
+        ?"Type I dépend de l’ordre ; le type II ne convient pas aux effets principaux lorsque l’interaction reste dans le modèle."
+        :"Type I dépend de l’ordre. Le type III reste possible, mais le type II cible plus efficacement les effets marginaux.";
+  }
+
+  /* Un seul écouteur reste valide même si RevealJS déplace des nœuds lors de l’initialisation. */
+  root.addEventListener("change",event=>{
+    const role=event.target.dataset.role;
+    if(role==="balance") state.balance=event.target.value;
+    else if(role==="interaction") state.interaction=event.target.value==="test";
+    else if(role==="covariate") state.covariate=event.target.checked;
+    else if(role==="order-justified") state.orderJustified=event.target.checked;
+    else if(role==="order") state.order=event.target.value;
+    else return;
+    render();
+  });
+
+  /* Les flèches modifient les listes sans déclencher la navigation RevealJS. */
+  root.addEventListener("keydown",event=>{
+    if(event.target.matches("select,input")&&["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," "].includes(event.key)) event.stopPropagation();
+  });
+
+  root.dataset.initialised="true";
+  render();
+})();
+</script>
+```

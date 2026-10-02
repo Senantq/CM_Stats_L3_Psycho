@@ -1,0 +1,742 @@
+/*-- scss:defaults --*/
+
+$body-bg: #3f4d53;
+$body-color: #111111;
+$presentation-heading-color: #d69d68;
+$link-color: #b9723f;
+$presentation-font-size-root: 24px;
+
+$font-family-sans-serif:
+  "CMU Serif", "Computer Modern Serif", Georgia, serif;
+$font-family-monospace:
+  "CMU Serif", "Computer Modern Serif", Georgia, serif;
+$presentation-heading-font:
+  "CMU Serif", "Computer Modern Serif", Georgia, serif;
+$presentation-heading-text-transform: none;
+
+/*-- scss:rules --*/
+
+/* -------------------------------------------------------------------------- */
+/* CMU Serif                                                                  */
+/* -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "CMU Serif";
+  src:
+    local("CMU Serif"),
+    local("CMU Serif Roman"),
+    url("../../../../../assets/fonts/cmunrm.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "CMU Serif";
+  src:
+    local("CMU Serif Bold"),
+    url("../../../../../assets/fonts/cmunbx.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "CMU Serif";
+  src:
+    local("CMU Serif Italic"),
+    url("../../../../../assets/fonts/cmunti.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "CMU Serif";
+  src:
+    local("CMU Serif Bold Italic"),
+    url("../../../../../assets/fonts/cmunbi.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+.reveal,
+.reveal h1,
+.reveal h2,
+.reveal h3,
+.reveal h4,
+.reveal h5,
+.reveal h6,
+.reveal p,
+.reveal li,
+.reveal table,
+.reveal th,
+.reveal td,
+.reveal blockquote,
+.reveal figcaption,
+.reveal code,
+.reveal pre,
+.reveal kbd,
+.reveal samp,
+.reveal input,
+.reveal button,
+.reveal select,
+.reveal textarea,
+.reveal .slide-number {
+  font-family: "CMU Serif", "Computer Modern Serif", Georgia, serif;
+}
+
+.reveal svg text,
+.reveal .plotly text {
+  font-family: "CMU Serif", "Computer Modern Serif", Georgia, serif !important;
+}
+
+.reveal .slides > section.slide.level2,
+.reveal .slides > section#title-slide {
+  box-sizing: border-box;
+  width: 960px;
+  height: 540px;
+  min-height: 540px;
+  overflow: hidden;
+  background-color: transparent;
+  background-position: 0 0;
+  background-size: 960px 540px;
+  background-repeat: no-repeat;
+}
+
+/* Diapositives ordinaires. */
+.reveal .slides > section.slide.level2 {
+  background-image: url("../../../../../assets/backgrounds/fond_contenu_1920_1080.png");
+  padding: 96px 54px 36px;
+  text-align: left;
+}
+
+/* Le titre reste dans le bandeau sombre du PNG. */
+.reveal .slides > section.slide.level2 > h2 {
+  position: absolute;
+  top: 31px;
+  right: 78px;
+  left: 78px;
+  margin: 0;
+  overflow: hidden;
+  color: #d69d68;
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Diapositive de titre                                                       */
+/* -------------------------------------------------------------------------- */
+
+.reveal .slides > section#title-slide {
+  display: block !important;
+  position: absolute;
+  background-image: url("../../../../../assets/backgrounds/fond_titre_1920_1080.png");
+  padding: 0;
+  text-align: center;
+}
+
+#title-slide .title {
+  position: absolute;
+  top: 143px;
+  right: 90px;
+  left: 90px;
+  margin: 0;
+  color: #111111;
+  font-size: 1.9em;
+  font-weight: 700;
+  line-height: 1.05;
+  text-shadow: 1.5px 1.5px 2px rgba(0, 0, 0, 0.32);
+}
+
+#title-slide .subtitle {
+  position: absolute;
+  top: 207px;
+  right: 90px;
+  left: 90px;
+  margin: 0;
+  color: #3f4d53;
+  font-size: 1.08em;
+  line-height: 1.15;
+}
+
+/* Logo UGA */
+#title-slide::after {
+  content: "";
+  position: absolute;
+  top: 275px;
+  left: 50%;
+  width: 245px;
+  height: 125px;
+  transform: translateX(-50%);
+  background-image: url("../../../../../assets/logos/Logo_UGA.svg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  pointer-events: none;
+}
+
+/* Auteur, e-mail et affiliation */
+#title-slide .quarto-title-authors {
+  position: absolute;
+  top: 402px;
+  right: 90px;
+  left: 90px;
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  color: #111111;
+  font-size: 0.82em;
+  line-height: 1.05;
+}
+
+#title-slide .quarto-title-author {
+  padding: 0;
+}
+
+#title-slide .quarto-title-author-name {
+  margin: 0;
+}
+
+#title-slide .quarto-title-author-email {
+  margin: 2px 0 0 0;
+  font-size: 0.72em;
+}
+
+#title-slide .quarto-title-affiliation {
+  margin: 2px 0 0 0;
+  font-size: 0.72em;
+}
+
+#title-slide .date {
+  color: #111111;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Diapositive de transition : ## Titre {.interlude}                          */
+/* -------------------------------------------------------------------------- */
+
+.reveal .slides > section.slide.level2.interlude {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-image: url("../../../../../assets/backgrounds/fond_contenu_1920_1080.png");
+  padding: 50px 90px 0;
+  text-align: center;
+}
+
+.reveal .slides > section.slide.level2.interlude > h2 {
+  position: static;
+  margin: 0 0 16px;
+  overflow: visible;
+  color: #d69d68;
+  font-size: 1.48em;
+  line-height: 1.1;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.reveal .slides > section.slide.level2.interlude > p {
+  margin: 0;
+  text-align: center;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sommaire : ## Titre {.sommaire}                                            */
+/* -------------------------------------------------------------------------- */
+
+.reveal .slides > section.slide.level2.sommaire {
+  background-image: url("../../../../../assets/backgrounds/fond_sommaire_1920_1080.png");
+  padding: 0;
+}
+
+.reveal .slides > section.slide.level2.sommaire > h2 {
+  display: none;
+}
+
+.reveal .sommaire-grille,
+.reveal .sommaire-colonne {
+  position: absolute;
+  margin: 0;
+}
+
+.reveal .sommaire-grille {
+  inset: 0;
+}
+
+.reveal .sommaire-colonne {
+  width: 418px;
+}
+
+.reveal .sommaire-colonne > p {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: center;
+  min-height: 98px;
+  margin: 0;
+  color: #3f4d53;
+  line-height: 1.08;
+}
+
+.reveal .sommaire-numero {
+  align-self: center;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
+.reveal .sommaire-texte {
+  display: block;
+  padding-left: 4px;
+  font-size: 25px;
+  font-weight: 700;
+  line-height: 1.08;
+}
+
+.reveal .sommaire-gauche {
+  left: 74px;
+}
+
+.reveal .sommaire-droite {
+  left: 542px;
+  width: 390px;
+}
+
+.reveal .sommaire-droite > p {
+  grid-template-columns: 78px minmax(0, 1fr);
+}
+
+.reveal .sommaire-droite .sommaire-texte {
+  padding-left: 2px;
+}
+
+.reveal .sommaire-cm0 .sommaire-gauche {
+  top: 40px;
+}
+
+.reveal .sommaire-cm0 .sommaire-droite {
+  top: 142px;
+}
+
+.reveal .sommaire-cm1 .sommaire-gauche {
+  top: 69px;
+}
+
+.reveal .sommaire-cm1 .sommaire-droite {
+  top: 166px;
+}
+
+.reveal .sommaire-cm1 .sommaire-colonne > p {
+  min-height: 112px;
+}
+
+.reveal .sommaire-cm1 .sommaire-texte {
+  font-size: 27px;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dernière diapositive : ## {.fin}                                           */
+/* -------------------------------------------------------------------------- */
+
+.reveal .slides > section.slide.level2.fin {
+  background-image: url("../../../../../assets/backgrounds/fond_fin_1920_1080.png");
+  padding: 0;
+}
+
+.reveal .slides > section.slide.level2.fin > h2 {
+  display: none;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Contenu                                                                    */
+/* -------------------------------------------------------------------------- */
+
+.reveal p,
+.reveal li {
+  font-size: 0.94em;
+  line-height: 1.28;
+}
+
+.reveal .slides > section.slide.level2.smaller {
+  font-size: 0.78em;
+}
+
+.reveal .slides > section.slide.level2.smaller > h2 {
+  font-size: 36px;
+}
+
+.reveal .slides > section.slide.level2.titre-long > h2 {
+  font-size: 32px;
+}
+
+.reveal .slides > section.slide.level2.titre-tres-long > h2 {
+  font-size: 26px;
+}
+
+.reveal ul,
+.reveal ol {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+}
+
+.reveal table {
+  font-size: 0.84em;
+}
+
+.reveal img,
+.reveal video,
+.reveal iframe {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.reveal .columns {
+  align-items: flex-start;
+}
+
+.reveal .slide-number {
+  color: #d69d68;
+  background: transparent;
+  font-size: 0.55em;
+}
+
+.reveal mjx-container {
+  font-size: 105%;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Graphiques R                                                               */
+/* -------------------------------------------------------------------------- */
+
+/*
+Le conteneur Markdown {.graphique-r} isole le graphique de la classe
+automatique r-stretch de Revealjs. Le cadre reste entièrement dans le panneau
+blanc du PNG, quel que soit le format natif produit par R.
+*/
+
+.reveal .slides > section.slide.level2 > .graphique-r {
+  position: absolute;
+  top: 90px;
+  right: 55px;
+  bottom: 57px;
+  left: 55px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin: 0;
+}
+
+.reveal .graphique-r .cell,
+.reveal .graphique-r .cell-output,
+.reveal .graphique-r .cell-output-display,
+.reveal .graphique-r p {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+.reveal .graphique-r img.quarto-figure,
+.reveal .graphique-r img.r-stretch,
+.reveal .graphique-r img.stretch {
+  position: static;
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  margin: 0 auto !important;
+  object-fit: contain;
+}
+
+/*
+Widgets Plotly dans RevealJS.
+
+RevealJS conserve un canevas logique de 960 × 540 px et redimensionne ensuite
+toute la présentation avec une transformation CSS. La classe .plotly-stable
+borne le widget dans ce canevas. Le script plotly-reveal-resize.js complète ces
+règles en transmettant à Plotly les dimensions logiques, sans le facteur
+d'échelle de RevealJS.
+*/
+.reveal .plotly-stable {
+  --plotly-height: 335px;
+
+  .cell,
+  .cell-output,
+  .cell-output-display {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+
+  .html-widget,
+  .plotly {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: var(--plotly-height) !important;
+    max-height: var(--plotly-height) !important;
+    overflow: hidden !important;
+  }
+
+  figcaption {
+    max-width: 100%;
+    margin-top: 0.2em;
+    font-size: 0.48em;
+    line-height: 1.15;
+    text-align: left;
+  }
+}
+
+.reveal .plotly-stable.plotly-ddl {
+  --plotly-height: 320px;
+}
+
+.reveal .slides > section.slide.level2 > .graphique-r.plotly-ddl {
+  bottom: 32px;
+}
+
+.reveal .plotly-ddl .html-widget {
+  flex: 0 0 320px !important;
+  height: 320px !important;
+  max-height: 320px !important;
+  overflow: visible !important;
+}
+
+.reveal .plotly-ddl .cell-output-display > p {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 4px 0 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  font-size: 9px !important;
+  line-height: 1.08 !important;
+  text-align: left;
+}
+
+.reveal .plotly-ddl .note-figure {
+  display: block;
+  margin: 2px 0 0 !important;
+  font-size: 9px !important;
+  line-height: 1.08 !important;
+}
+
+.reveal .plotly-ddl .cell-output-display > p mjx-container {
+  margin: 0 !important;
+  font-size: 100% !important;
+}
+
+.reveal .plotly-stable.plotly-z,
+.reveal .plotly-stable.plotly-z .html-widget {
+  width: 850px !important;
+  height: 350px !important;
+  max-width: none !important;
+}
+
+.reveal .plotly-stable.plotly-z {
+  margin-inline: auto !important;
+  overflow: visible !important;
+}
+
+/* Hauteurs réutilisables pour les prochains graphiques interactifs. */
+.reveal .plotly-stable.plotly-small,
+.reveal .plotly-small .plotly-stable {
+  --plotly-height: 300px;
+}
+
+/* Revealjs applique ses propres règles au PDF ; on conserve le canevas fixe. */
+html.reveal-print .reveal .slides section.slide.level2,
+html.reveal-print .reveal .slides section#title-slide {
+  width: 960px !important;
+  height: 540px !important;
+  min-height: 540px !important;
+}
+
+/* Légendes et notes de figures */
+.reveal .graphique-r figcaption.quarto-float-caption {
+  margin-top: 0.25rem;
+  text-align: left;
+  font-family: "CMU Serif", serif;
+  font-size: 0.48em;
+  line-height: 1.18;
+}
+
+/* Police de titre de figures plus petit */
+.reveal .graphique-r .titre-petit {
+  display: block;
+  font-size: 0.55em !important;
+  line-height: 1.05 !important;
+  margin-bottom: 0.15em;
+}
+
+.reveal .graphique-r .note-figure {
+  display: block;
+  margin-top: 0.18rem;
+  font-style: normal;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Insertion d'images                                                         */
+/* -------------------------------------------------------------------------- */
+.reveal .image-statique {
+  position: static;
+  width: 100%;
+  margin: .15em auto .2em;
+  text-align: center;
+}
+
+.reveal .image-statique img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+
+.reveal .slides > section.tmt-slide .tmt-pages {
+  position: absolute;
+  inset: 92px 65px 55px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  gap: 14px;
+  overflow: hidden;
+}
+
+.reveal .tmt-pages .tmt-page,
+.reveal .tmt-pages .tmt-page p {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.reveal .tmt-pages img {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  margin: 0 !important;
+  object-fit: contain;
+  object-position: center;
+}
+/* -------------------------------------------------------------------------- */
+/* Positionnement et mise en forme ponctuelle                                 */
+/* -------------------------------------------------------------------------- */
+
+/* Petit déplacement en conservant la place initiale de l’élément */
+.reveal .deplacer {
+  position: relative;
+  left: var(--x, 0px);
+  top: var(--y, 0px);
+}
+
+/* Position précise depuis le coin supérieur gauche de la diapositive */
+.reveal .placer {
+  position: absolute;
+  left: var(--x, 0px);
+  top: var(--y, 0px);
+  width: var(--w, auto);
+  z-index: var(--z, 2);
+  margin: 0;
+}
+
+/* Couleurs */
+.reveal .orange {
+  color: #d69d68;
+}
+
+.reveal .gris {
+  color: #3f4d53;
+}
+
+.reveal .bleu {
+  color: #5b5be7;
+}
+
+.reveal .turquoise {
+  color: #159c91;
+}
+
+.reveal .rouge {
+  color: #d9534f;
+}
+
+/* Graisse et ombre */
+.reveal .gras {
+  font-weight: 700;
+}
+
+.reveal .ombre-texte {
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/*cm00 references*/
+.reveal .slides > section.references-compactes {
+  font-size: 0.66em;
+}
+
+.reveal .slides > section.references-compactes > h2 {
+  font-size: 36px;
+}
+
+.reveal .slides > section.references-compactes > h3 {
+  margin: 0.22em 0 0.12em;
+  font-size: 2em;
+  line-height: 1;
+}
+
+.reveal .slides > section.references-compactes > ul {
+  margin: 0.08em 0 0.26em;
+}
+
+.reveal .slides > section.references-compactes li {
+  margin-bottom: 0.12em;
+  line-height: 1.16;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Export PDF                                                                 */
+/* -------------------------------------------------------------------------- */
+
+html.print-pdf,
+html.print-pdf body,
+html.print-pdf .reveal-viewport {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+}
+
+@media print {
+  html,
+  body,
+  .reveal-viewport {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+  }
+}
+
+.tost-responsive,
+.tost-responsive .cell,
+.tost-responsive .cell-output,
+.tost-responsive .cell-output-display,
+.tost-responsive .html-widget,
+.tost-responsive .js-plotly-plot,
+.tost-responsive .plot-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.tost-responsive .cell-output-display {
+  overflow-x: hidden !important;
+}

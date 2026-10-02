@@ -1,0 +1,73 @@
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+credentials*
+secrets*
+
+# Quarto
+.quarto/
+**/.quarto/
+
+_site/
+**/_site/
+
+_freeze/
+**/_freeze/
+
+# Caches knitr / R / Quarto
+*_cache/
+**/*_cache/
+
+# Fichiers générés accompagnant les HTML Quarto
+*_files/
+**/*_files/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Fichiers temporaires
+*.tmp
+*.log
+*~
+.DS_Store
+Thumbs.db
+
+# Archives
+*.zip
+*.7z
+*.tar
+*.tar.gz
+
+/.quarto/
+**/*.quarto_ipynb
+
+# Archives / exports générés
+CM_L3_QS.zip
+Export_pdf_CMs/
+
+# Documents qui ne doivent pas être diffusés publiquement
+td_anova_l3/
+Examen_Stats_AMC_LaTeX_QS/
+articles_annexes/
+ANOVA_L3_JASP_donnees_tutoriels/
+
+# À retirer de cette liste seulement après vérification des droits
+Cheatsheets/
+figs_importees/
+
+#cm particuliers
+cm04.qmd
+cm05.qmd
+figs_pq_normalite_sur_residus.R
+

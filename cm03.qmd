@@ -1,0 +1,3078 @@
+---
+title: "CM n°3 : De L’ANOVA factorielle à l'ANCOVA"
+#subtitle: "Des effets principaux aux interaction, et ouverture à l’ANCOVA"
+
+author:
+  - name: "Quentin Sénant"
+    email: "quentin.senant@univ-grenoble-alpes.fr"
+    affiliations:
+      - name: "Université Grenoble Alpes"
+
+lang: fr-FR
+date-format: "D MMMM YYYY"
+description: "Cours magistral de statistique inférentielle — Licence 3 Psychologie"
+---
+
+## Plan du CM {.sommaire .sommaire-cm1}
+
+```{r}
+#| label: setup
+#| include: false
+
+suppressPackageStartupMessages({library(dplyr); library(tidyr); library(plotly); library(htmlwidgets)})
+
+# Palette commune aux trois CM.
+couleurs <- list(fond="#3f4d53", bleu="#5b5be7", bleu_clair="#d9d9ff", turquoise="#159c91", rouge="#d9534f", orange="#E69F55", gris="#A7B0B3", blanc="#FFFFFF")
+cols_path <- c(
+  "Alzheimer"=couleurs$rouge,
+  "DCL"=couleurs$turquoise,
+  "Contrôle"=couleurs$orange
+)
+cols_sexe <- c("Homme"=couleurs$bleu, "Femme"=couleurs$rouge)
+
+# Formatage français des nombres et des p-values affichés dans les diapositives.
+fmt <- function(x, d=2) sub("\\.", ",", formatC(x, format="f", digits=d))
+fmt_p <- function(p) ifelse(p < .001, "< .001", paste0("= ", sub("^0", "", formatC(p, format="f", digits=3))))
+cfg <- function(p) config(p, displayModeBar=FALSE, responsive=TRUE, scrollZoom=FALSE, doubleClick=FALSE)
+axe_x <- function(titre="") list(title=list(text=titre,standoff=7),fixedrange=TRUE,zeroline=FALSE,showgrid=FALSE,tickfont=list(size=12))
+axe_y <- function(titre="", plage=NULL) list(title=list(text=titre,standoff=7),fixedrange=TRUE,zeroline=FALSE,gridcolor="rgba(63,77,83,.16)",range=plage,tickfont=list(size=12))
+
+# Données simulées : 2 pathologies × 2 sexes, 24 personnes par cellule.
+# L'ordre des cellules est Alzheimer-Homme, Alzheimer-Femme, DCL-Homme, DCL-Femme.
+set.seed(20260910)
+n_cell <- 24L; beta_age <- -.30; sigma_err <- 2
+plan_cellules <- expand_grid(pathologie=c("Alzheimer","DCL"),sexe=c("Homme","Femme")) |>
+  mutate(mu72=c(27,27,33.5,38.5),age_moy=c(78,78,74,74))
+
+# Quantiles normaux standardisés pour obtenir des distributions approximativement normales.
+z_age <- as.numeric(scale(qnorm(ppoints(n_cell))))
+z_norm <- as.numeric(scale(qnorm(ppoints(n_cell))))
+
+dat <- bind_rows(lapply(seq_len(nrow(plan_cellules)),function(k){
+  ligne <- plan_cellules[k,]; z_err <- sample(z_norm)
+  while(abs(cor(z_age,z_err))>.03) z_err <- sample(z_norm)
+  ordre <- sample(seq_len(n_cell)); za <- z_age[ordre]; ze <- z_err[ordre]
+  age <- ligne$age_moy+3.5*za
+  tibble(id=sprintf("P%03d",(k-1)*n_cell+seq_len(n_cell)),pathologie=ligne$pathologie,sexe=ligne$sexe,age=round(age,1),rappel_total=pmin(48,pmax(0,round(ligne$mu72+beta_age*(age-72)+sigma_err*ze))))
+})) |>
+  mutate(pathologie=factor(pathologie,levels=c("Alzheimer","DCL")),sexe=factor(sexe,levels=c("Homme","Femme")),age_c=age-72)
+
+stopifnot(nrow(dat)==4*n_cell,all(dat$rappel_total>=0 & dat$rappel_total<=48))
+
+# Statistiques descriptives du jeu pédagogique.
+resume_cell <- dat |>
+  group_by(pathologie,sexe) |>
+  summarise(n=n(),moyenne=mean(rappel_total),et=sd(rappel_total),se=et/sqrt(n),ic=qt(.975,n-1)*se,.groups="drop")
+resume_path <- dat |> group_by(pathologie) |> summarise(n=n(),moyenne=mean(rappel_total),et=sd(rappel_total),.groups="drop")
+resume_sexe <- dat |> group_by(sexe) |> summarise(n=n(),moyenne=mean(rappel_total),et=sd(rappel_total),.groups="drop")
+m_grand <- mean(dat$rappel_total); n_total <- nrow(dat)
+
+# ANOVA factorielle 2 × 2 : chaque effet possède 1 ddl.
+fit_aov <- lm(rappel_total ~ pathologie*sexe,data=dat)
+tab_aov <- anova(fit_aov)
+ss_path <- tab_aov["pathologie","Sum Sq"]
+ss_sexe <- tab_aov["sexe","Sum Sq"]
+ss_int <- tab_aov["pathologie:sexe","Sum Sq"]
+ss_err <- tab_aov["Residuals","Sum Sq"]
+ss_tot <- sum((dat$rappel_total-m_grand)^2)
+df_err <- tab_aov["Residuals","Df"]
+mse <- ss_err/df_err
+
+# Tailles d'effet.
+eta <- function(ss) ss / ss_tot
+eta_p <- function(ss) ss / (ss + ss_err)
+
+omega_p <- function(ss,df)
+  (ss-df*mse)/(ss+ss_err+mse)
+
+ss_effets <- c(ss_path,ss_sexe,ss_int)
+ddl_effets <- as.numeric(tab_aov[1:3,"Df"])
+
+res_aov <- tibble(
+  effet=c("Pathologie","Sexe","Pathologie × Sexe"),
+  ss=ss_effets,
+  ddl=ddl_effets,
+  cm=ss/ddl,
+  F=cm/mse,
+  p=as.numeric(tab_aov[1:3,"Pr(>F)"]),
+  eta2=eta(ss),
+  eta2p=eta_p(ss),
+  omega2p=mapply(omega_p,ss,ddl)
+)
+
+# Dans un plan 2 × 2, chaque effet correspond directement à une comparaison à 1 ddl.
+m_path <- setNames(resume_path$moyenne,resume_path$pathologie)
+n_path <- setNames(resume_path$n,resume_path$pathologie)
+m_cell <- xtabs(moyenne ~ pathologie + sexe,data=resume_cell)
+ss_contraste <- function(codes,moyennes,ns) sum(codes*moyennes)^2/sum(codes^2/ns)
+
+# Contraste Pathologie : DCL − Alzheimer.
+c_path <- c("Alzheimer"=-1,"DCL"=1)
+contrastes_path <- tibble(
+  contraste="DCL − Alzheimer",
+  estimation=sum(c_path*m_path),
+  ss=ss_contraste(c_path,m_path,n_path)
+) |>
+  mutate(F=ss/mse,p=pf(F,1,df_err,lower.tail=FALSE))
+
+# Contraste Sexe : Femme − Homme.
+c_sexe <- c("Homme"=-1,"Femme"=1)
+
+# Interaction : différence de l'effet du sexe entre DCL et Alzheimer.
+# I = (DCL_F − DCL_H) − (Alzheimer_F − Alzheimer_H).
+coef_int <- outer(c_path,c_sexe)
+contrastes_int <- tibble(
+  contraste="(DCL : Femme − Homme) − (Alzheimer : Femme − Homme)",
+  estimation=sum(coef_int*m_cell),
+  ss=sum(coef_int*m_cell)^2/sum(coef_int^2/n_cell)
+) |>
+  mutate(F=ss/mse,p=pf(F,1,df_err,lower.tail=FALSE))
+
+# Effets simples du sexe au sein de chaque pathologie.
+effets_simples <- resume_cell |>
+  select(pathologie,sexe,moyenne) |>
+  pivot_wider(names_from=sexe,values_from=moyenne) |>
+  mutate(diff=Femme-Homme,ss=diff^2/(2/n_cell),F=ss/mse,p=pf(F,1,df_err,lower.tail=FALSE),p_holm=p.adjust(p,"holm"))
+
+```
+
+::: {.sommaire-grille}
+::: {.sommaire-colonne .sommaire-gauche}
+[1.]{.sommaire-numero} [Construire et lire un plan factoriel]{.sommaire-texte}
+
+[2.]{.sommaire-numero} [Décomposer et tester la dispersion]{.sommaire-texte}
+
+[3.]{.sommaire-numero} [Comparaisons à 1 ddl et effets simples]{.sommaire-texte}
+:::
+
+::: {.sommaire-colonne .sommaire-droite}
+[4.]{.sommaire-numero} [Conditions d’application et stratégie]{.sommaire-texte}
+
+[5.]{.sommaire-numero} [Ouverture : l’ANCOVA avec l’âge]{.sommaire-texte}
+
+[6.]{.sommaire-numero} [Synthèse et compte rendu]{.sommaire-texte}
+:::
+:::
+
+## DCL et Alzheimer au RL/RI-16
+
+<div style="font-size:0.92em;">
+Le **RL/RI-16** évalue la mémoire. On y contrôle l’encodage sémantique de 16 mots. Chaque essai comprend un rappel libre spontané et un rappel indicé où le clinicien fourni la catégorie sémantique des mots non rappelés librement. La procédure est répétée trois fois (i.e., il y a trois Rappels Libres suivi chacun d'un Rappel Indicé).
+
+Ici, on prendra pour VD le Rappel Total cumulé (que je noterais $RT_{cum}$), il est compris entre 0 et 48.
+
+Par rapport au Rappel Libre, il dépend aussi de l'effet de l'indiçage sémantique qui bénéficie beaucoup aux patients frontaux (e.g., la démence à corps de Lewy, DCL) et qui se caractérisent majoritairement par un trouble de la récupération en mémoire.
+
+En revanche l'indiçage ne bénéficie que peu aux patients atteints d'un trouble de l'encodage/stockage en mémoire (e.g., Alzheimer).
+
+*Note.* Ces données là pourraient être mieux traitées avec une loi Binomiale voire de Poisson si les contrôles ne montraient pas un effet plafond. Par simplification, on ne le fera pas ici.
+</div>
+
+## Données et sources
+
+<div style="font-size:0.95em;">
+Pour construire le cours, je me suis inspiré des données de Querry et al. (2023) qui montrent **DCL > Alzheimer au RT** (effet principal de la pathologie). 
+L'**avantage moyen des femmes relativement aux hommes** s’inspire des normes françaises du RL/RI-16 issues de l’étude des Trois Cités (Amieva et al., 2007), qui montrent des performances globalement plus élevées chez les femmes.
+
+L'**interaction Pathologie × Sexe** par contre, reste hypothétique. 
+
+
+On prendra donc un premier facteur de Pathologie : Alzheimer *vs.* DCL, et un facteur Sexe biologique : Homme *vs.* Femme. 
+
+Le plan est intersujet, avec 4 cellules expérimentales et on prends $n=24$ personnes indépendantes par cellule, soit $N=96$.
+</div>
+
+<div style="font-size:.65em; margin-top:.6em;">
+
+→ Amieva et al. (2007), <em>Revue Neurologique</em>, 163(2), 205–221.
+
+→ Mura et al. (2017), <em>Alzheimer’s Research & Therapy</em>, doi: 10.1186/s13195-016-0230-x.
+
+→ Querry et al. (2023), <em>Journal of Alzheimer’s Disease</em>, doi: 10.3233/JAD-221243
+
+</div>
+
+## Distributions empiriques {.smaller}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:375px;"}
+```{r}
+#| label: fig-donnees-cellules
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Données individuelles et moyennes des six cellules du plan.
+#|   <span class="note-figure"><em>Note.</em> Les barres représentent les IC à 95 % des moyennes de cellule.</span>
+#| fig-width: 8.85
+#| fig-height: 3.75
+#| out-width: "850px"
+
+# Léger décalage horizontal pour distinguer les personnes.
+dat_plot <- dat |> group_by(pathologie,sexe) |> mutate(jitter=seq(-.13,.13,length.out=n())) |> ungroup() |> mutate(x=as.numeric(pathologie)+if_else(sexe=="Homme",-.16,.16)+jitter)
+
+p <- plot_ly()
+for (s in levels(dat$sexe)) {
+  d <- filter(dat_plot,sexe==s); r <- filter(resume_cell,sexe==s); dx <- ifelse(s=="Homme",-.16,.16)
+  for (pa in levels(dat$pathologie)) {
+    dv <- filter(d,pathologie==pa); xv <- as.numeric(factor(pa,levels=levels(dat$pathologie)))+dx
+    p <- p |> add_trace(data=dv,x=rep(xv,nrow(dv)),y=~rappel_total,type="violin",showlegend=FALSE,legendgroup=s,points=FALSE,width=.27,spanmode="soft",bandwidth=1.15,scalemode="width",fillcolor=cols_sexe[[s]],opacity=.18,line=list(color=cols_sexe[[s]],width=1),hoverinfo="skip")
+  }
+  p <- p |> add_trace(data=d,x=~x,y=~rappel_total,type="scatter",mode="markers",name=s,legendgroup=s,marker=list(color=cols_sexe[[s]],size=5.5,opacity=.56,line=list(color="white",width=.5)),text=~paste0(id,"<br>",pathologie," — ",sexe,"<br>Rappel total = ",rappel_total,"/48<br>Âge = ",age," ans"),hoverinfo="text")
+  p <- p |> add_trace(data=r,x=as.numeric(r$pathologie)+dx,y=~moyenne,type="scatter",mode="markers",showlegend=FALSE,legendgroup=s,error_y=list(type="data",array=r$ic,visible=TRUE,color=cols_sexe[[s]],thickness=1.5,width=5),marker=list(color=cols_sexe[[s]],size=11,symbol="diamond",line=list(color="white",width=1.2)),text=~paste0(pathologie," — ",sexe,"<br><b>M = ",fmt(moyenne,1),"</b><br>ET = ",fmt(et,1),"<br>IC 95 % [",fmt(moyenne-ic,1)," ; ",fmt(moyenne+ic,1),"]"),hoverinfo="text")
+}
+
+p <- p |> layout(font=list(family="CMU Serif",color=couleurs$fond),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.82)",xaxis=modifyList(axe_x("Pathologie"),list(tickmode="array",tickvals=1:2,ticktext=levels(dat$pathologie),range=c(.55,2.45))),yaxis=axe_y("Rappel total cumulé (/48)",c(18,48)),legend=list(orientation="h",x=.5,xanchor="center",y=1.13),margin=list(l=62,r=18,t=34,b=48))
+cfg(p)
+```
+:::
+
+## Plans entièrement factoriels {.smaller}
+
+::: {style="font-size:1.05em;"}
+
+Un plan est entièrement factoriel quand chaque modalité $j$ d'un facteur $A$ rencontre chacune des $k$ modalités du facteur $B$. Quand ce n'est pas le cas, on parle de plan fractionnaire. La notion de plan factoriel est orthogonale à/indépendante de celle de plan intra ou intersujets. On peut faire la table descriptive suivante :
+
+| | Homme | Femme | Moyenne marginale de la Patho (A) |
+|:---|:---:|:---:|:---:|
+| Alzheimer | $m_{11}$ | $m_{12}$ | $m_{1\cdot}$ |
+| DCL | $m_{21}$ | $m_{22}$ | $m_{2\cdot}$ |
+| **Moyenne marginale du Sexe (B)** | $m_{\cdot1}$ | $m_{\cdot2}$ | $m_{\cdot\cdot}$ |
+
+où le point en indice signifie que l'on a marginalisé (moyenné) sur le facteur correspondant. Ainsi, une **moyenne marginale** moyenne sur les modalités de l’autre facteur et une **moyenne de cellule expérimentale** décrit une combinaison précise des cellules $A_jB_k$. La **moyenne générale** (*grand mean*) ou d'échantillon, notée $m_{\cdot\cdot}$ correspond simplement à la moyenne des six cellules expérimentales.
+:::
+
+## Modèle de l'ANOVA factorielle {.titre-tres-long}
+<div style="font-size:0.88em;">
+
+L’ANOVA factorielle est un modèle linéaire (une somme pondérée) qui ne comporte que des VI catégorielles. Chaque VI catégorielle à $k$ modalités possède $k-1$ ddl et peut donc être décrite par **$k-1$ contrastes indépendants**. Dans le modèle linéaire, chaque contraste est représenté par une colonne de codage $X$ associée à un coefficient. **L'interaction est les produits de ces colonnes de contraste**. 
+
+En ANOVA $2\times2$ le modèle comprend donc ici trois coefficients, en plus de l’ordonnée à l’origine.
+
+L’interaction indique que **l’effet d’une VI dépend de la modalité ou de la valeur prise par l’autre VI**.
+Dans un plan $2\times2$, elle correspond à une **différence de différences** : par exemple, la différence moyenne entre femmes et hommes varie selon la Pathologie. On parle aussi d’**effet de modération**.
+
+Dans le modèle, **l'interaction se représente à l'aide d'une multiplication entre 2 autres variables explicatives**, ici P et S : 
+
+$$
+\widehat Y=\beta_0+\beta_1P+\beta_2S+\beta_3P\times S
+$$
+
+</div>
+
+## L’effet principal de la Pathologie (à apprendre) {.smaller .titre-tres-long}
+
+<div style="font-size:1.07em;">
+L’effet principal de $P$ compare les **moyennes marginales du facteur Pathologie**, donc en moyennant sur le sexe, ce que l'on note :
+
+$$
+H_0:\mu_{Alzh\cdot}=\mu_{DCL\cdot}
+$$
+L'effet **principal** de la Pathologie pose la question de si les niveaux moyens de $RT_{cum}$ diffèrent entre ses modalités, **tous sexes confondus/indépendamment du sexe**
+
+Réciproquement, l’effet principal de $S$ compare les **moyennes marginales du sexe biologique**, donc en moyennant sur la pathologie :
+
+$$
+H_0:\mu_{\cdot H}=\mu_{\cdot F}
+$$
+
+Il répond à : **les femmes et les hommes diffèrent-ils en moyenne, toutes pathologies confondues ?**
+L'effet principal du sexe pose la question de si les niveaux moyens de $RT_{cum}$ diffèrent entre hommes et femmes, sur les deux pathologies confondues/indépendamment de celles-ci.
+</div>
+
+## L’interaction Pathologie × Sexe (à apprendre) {.smaller .titre-tres-long}
+
+<div style="font-size:1.02em;">
+::: {style="border:4.5px solid #E69F55; border-radius:6px; padding:.075em .7em; background:rgba(255,255,255,1.);"}
+Un **effet simple** est l’effet d’un facteur dans une modalité donnée de l’autre facteur. Par exemple, la différence entre femmes et hommes **dans la DCL** est un effet simple du Sexe. 
+
+Il y a **interaction** (modération) lorsque ces effets simples diffèrent : ici, lorsque la différence entre femmes et hommes varie selon la Pathologie. La lecture de l'interaction est réciproque : l’interaction indique aussi que **la différence entre pathologies varie selon le sexe**. L’interaction est donc une **différence de différences**.
+:::
+
+Pour notre test d'interaction, $H_0$ pose l’égalité des effets simples du sexe dans les deux pathologies :
+
+$$
+H_0:  (\mu_{\mathrm{MA},F}-\mu_{\mathrm{MA},H})  = (\mu_{\mathrm{DCL},F}-\mu_{\mathrm{DCL},H}) \qquad \leftrightarrow \qquad H_0:  (\mu_{\mathrm{MA},F}-\mu_{\mathrm{MA},H}) - (\mu_{\mathrm{DCL},F}-\mu_{\mathrm{DCL},H}) = 0.
+$$
+
+::: {style="border:4.5px solid #E69F55; border-radius:6px; padding:.075em .7em; background:rgba(255,255,255,1.);"}
+→ Un **modèle additif** impose des pentes d'effets simples identiques (parallèles).
+
+→ Un **modèle avec interaction** permet aux effets simples de varier selon l’autre facteur (les pentes se croisent si on les prolonge).
+:::
+
+</div>
+
+
+## Effets marginaux et interaction (à apprendre) {.smaller .titre-tres-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:375px;"}
+```{r}
+#| label: fig-effets-marginaux
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Effets marginaux, et d'interaction dans un plan factoriel 2 × 2.
+#|   <em>Note.</em> Les curseurs modifient les trois coefficients associés à la pathologie, au sexe et à leur interaction.
+#| fig-width: 8.85
+#| fig-height: 3.75
+#| out-width: "850px"
+
+# Contrastes centrés avec ΔX = 1 :
+# P = -0.5 pour Alzheimer et +0.5 pour DCL ;
+# S = -0.5 pour Homme et +0.5 pour Femme.
+# Modèle : Yi = β0 + β1P + β2S + β3P×S + ei.
+dat_effets <- dat |>
+  mutate(
+    P=if_else(pathologie=="DCL",+.5,-.5),
+    S=if_else(sexe=="Femme",+.5,-.5)
+  )
+fit_param <- lm(rappel_total ~ P*S,data=dat_effets)
+b <- coef(fit_param); beta0 <- unname(b["(Intercept)"]); beta1_0 <- unname(b["P"]); beta2_0 <- unname(b["S"]); beta3_0 <- unname(b["P:S"])
+
+# Chaque observation conserve son résidu lorsque les coefficients changent.
+dat_effets <- dat_effets |> mutate(e=residuals(fit_param)) |> group_by(pathologie,sexe) |> arrange(id,.by_group=TRUE) |> mutate(jitter=seq(-.13,.13,length.out=n())) |> ungroup() |> mutate(x=as.numeric(pathologie)+if_else(sexe=="Homme",-.16,.16)+jitter)
+
+# Cellules de référence et largeur des IC des profils.
+cellules_ref <- expand_grid(
+  pathologie=factor(levels(dat$pathologie),levels=levels(dat$pathologie)),
+  sexe=factor(levels(dat$sexe),levels=levels(dat$sexe))
+) |>
+  mutate(
+    P=if_else(pathologie=="DCL",+.5,-.5),
+    S=if_else(sexe=="Femme",+.5,-.5),
+    x_modele=as.numeric(pathologie)+if_else(sexe=="Homme",-.16,.16)
+  )
+pred_ref <- predict(fit_param,newdata=cellules_ref,interval="confidence")
+cellules_ref <- cellules_ref |> mutate(demi_ic=(pred_ref[,"upr"]-pred_ref[,"lwr"])/2)
+
+# L'estimation initiale est ajoutée aux valeurs entières afin de retrouver exactement les données au départ.
+ajouter_estimation <- function(valeurs,x) sort(unique(c(valeurs,unname(x))))
+valeurs_beta1 <- ajouter_estimation(-6:7,beta1_0)
+valeurs_beta2 <- ajouter_estimation(-4:4,beta2_0)
+valeurs_beta3 <- ajouter_estimation(-4:5,beta3_0)
+combinaisons <- expand_grid(beta1=valeurs_beta1,beta2=valeurs_beta2,beta3=valeurs_beta3)
+
+# Les nuages et les violons sont recalculés pour chaque combinaison des trois coefficients.
+dat_deplacees <- crossing(combinaisons,dat_effets) |> mutate(y_deplace=beta0+beta1*P+beta2*S+beta3*P*S+e) |> arrange(beta1,beta2,beta3,sexe,pathologie,id)
+grille_modele <- crossing(combinaisons,cellules_ref) |> mutate(moyenne_modele=beta0+beta1*P+beta2*S+beta3*P*S,borne_inf=moyenne_modele-demi_ic,borne_sup=moyenne_modele+demi_ic) |> arrange(beta1,beta2,beta3,sexe,pathologie)
+
+p <- plot_ly(); n_traces <- 0L
+
+# Violons mobiles : une trace par cellule expérimentale.
+for (s in levels(dat$sexe)) {
+  dx <- ifelse(s=="Homme",-.16,.16)
+  for (pa in levels(dat$pathologie)) {
+    dv <- filter(dat_deplacees,sexe==s,pathologie==pa); xv <- as.numeric(factor(pa,levels=levels(dat$pathologie)))+dx
+    p <- p |> add_trace(data=dv,x=rep(xv,nrow(dv)),y=~y_deplace,type="violin",showlegend=FALSE,legendgroup=s,points=FALSE,width=.27,spanmode="soft",bandwidth=1.15,scalemode="width",fillcolor=cols_sexe[[s]],opacity=.17,line=list(color=cols_sexe[[s]],width=1),hoverinfo="skip",transforms=list(list(type="filter",target=~beta1,operation="=",value=beta1_0),list(type="filter",target=~beta2,operation="=",value=beta2_0),list(type="filter",target=~beta3,operation="=",value=beta3_0)))
+    n_traces <- n_traces+1L
+  }
+}
+
+# Nuages mobiles : le résidu ei et le décalage horizontal de chaque personne restent constants.
+for (s in levels(dat$sexe)) {
+  d <- filter(dat_deplacees,sexe==s)
+  p <- p |> add_trace(data=d,x=~x,y=~y_deplace,type="scatter",mode="markers",name=s,legendgroup=s,marker=list(color=cols_sexe[[s]],size=5.5,opacity=.54,line=list(color="white",width=.5)),text=~paste0(id,"<br>",pathologie," — ",sexe,"<br>Y<sub>i</sub> = ",fmt(y_deplace,1),"/48","<br>e<sub>i</sub> = ",fmt(e,1)),hoverinfo="text",transforms=list(list(type="filter",target=~beta1,operation="=",value=beta1_0),list(type="filter",target=~beta2,operation="=",value=beta2_0),list(type="filter",target=~beta3,operation="=",value=beta3_0)))
+  n_traces <- n_traces+1L
+}
+
+# Profils moyens mobiles et rubans d'IC à 95 %.
+for (s in levels(dat$sexe)) {
+  g <- filter(grille_modele,sexe==s); couleur_ic <- ifelse(s=="Homme","rgba(91,91,231,.16)","rgba(217,83,79,.16)")
+  p <- p |> add_trace(data=g,x=~x_modele,y=~borne_inf,type="scatter",mode="lines",showlegend=FALSE,legendgroup=s,line=list(color="rgba(0,0,0,0)",width=0),hoverinfo="skip",transforms=list(list(type="filter",target=~beta1,operation="=",value=beta1_0),list(type="filter",target=~beta2,operation="=",value=beta2_0),list(type="filter",target=~beta3,operation="=",value=beta3_0))); n_traces <- n_traces+1L
+  p <- p |> add_trace(data=g,x=~x_modele,y=~borne_sup,type="scatter",mode="lines",showlegend=FALSE,legendgroup=s,fill="tonexty",fillcolor=couleur_ic,line=list(color="rgba(0,0,0,0)",width=0),hoverinfo="skip",transforms=list(list(type="filter",target=~beta1,operation="=",value=beta1_0),list(type="filter",target=~beta2,operation="=",value=beta2_0),list(type="filter",target=~beta3,operation="=",value=beta3_0))); n_traces <- n_traces+1L
+  p <- p |> add_trace(data=g,x=~x_modele,y=~moyenne_modele,type="scatter",mode="lines+markers",showlegend=FALSE,legendgroup=s,line=list(color=cols_sexe[[s]],width=4),marker=list(color=cols_sexe[[s]],size=10,line=list(color="white",width=1.2)),text=~paste0(pathologie," — ",sexe,"<br><b>M prévue = ",fmt(moyenne_modele,1),"</b><br>β<sub>1</sub> = ",fmt(beta1,1),"<br>β<sub>2</sub> = ",fmt(beta2,1),"<br>β<sub>3</sub> = ",fmt(beta3,1)),hoverinfo="text",transforms=list(list(type="filter",target=~beta1,operation="=",value=beta1_0),list(type="filter",target=~beta2,operation="=",value=beta2_0),list(type="filter",target=~beta3,operation="=",value=beta3_0))); n_traces <- n_traces+1L
+}
+
+# Chaque curseur modifie le même filtre dans toutes les traces mobiles.
+indices_dynamiques <- 0:(n_traces-1L)
+creer_etapes <- function(valeurs,indice_filtre) lapply(valeurs,function(v) list(label=fmt(v,1),method="restyle",args=list(paste0("transforms[",indice_filtre,"].value"),v,indices_dynamiques)))
+creer_curseur <- function(valeurs,initiale,indice_filtre,x,prefixe) list(active=match(initiale,valeurs)-1L,x=x,len=.29,y=-.20,xanchor="left",yanchor="top",currentvalue=list(prefix=prefixe,font=list(size=11,color=couleurs$fond)),transition=list(duration=0),pad=list(t=25,b=0),steps=creer_etapes(valeurs,indice_filtre))
+curseur_beta1 <- creer_curseur(valeurs_beta1,beta1_0,0,.01,"β₁ Pathologie = ")
+curseur_beta2 <- creer_curseur(valeurs_beta2,beta2_0,1,.355,"β₂ Sexe = ")
+curseur_beta3 <- creer_curseur(valeurs_beta3,beta3_0,2,.70,"β₃ Interaction = ")
+
+# Limites communes à tous les états afin d'éviter un redimensionnement pendant le déplacement.
+plage_y <- range(c(dat_deplacees$y_deplace,grille_modele$borne_inf,grille_modele$borne_sup),na.rm=TRUE)
+plage_y <- c(max(0,floor(plage_y[1])-1),min(48,ceiling(plage_y[2])+1))
+
+p <- p |> layout(font=list(family="CMU Serif",color=couleurs$fond),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.82)",xaxis=modifyList(axe_x("Pathologie"),list(tickmode="array",tickvals=1:2,ticktext=levels(dat$pathologie),range=c(.55,2.45))),yaxis=axe_y("Rappel total (/48)",plage_y),legend=list(orientation="h",x=.5,xanchor="center",y=1.04),sliders=list(curseur_beta1,curseur_beta2,curseur_beta3),annotations=list(list(x=.5,y=1.15,xref="paper",yref="paper",showarrow=FALSE,text="Y<sub>i</sub> = β<sub>0</sub> + β<sub>1</sub>P + β<sub>2</sub>S + β<sub>3</sub>P×S + e<sub>i</sub>",font=list(size=13,color=couleurs$fond))),margin=list(l=62,r=18,t=62,b=92))
+cfg(p)
+```
+:::
+
+## L'interaction est prioritaire (à apprendre) {.titre-tres-long}
+
+<div style="font-size:1.04em;">
+L'interaction est prioritaire sur les effets principaux.
+ 
+**Si l’interaction est significative alors il faut l'interpréter et la qualifier avant les effets marginaux (principaux)**.
+
+Pour ça, on la décompose l'interaction par des comparaisons ciblées à 1 ddl : par exemple les effets simples. C'est seulement ensuite que l'on décrira les effets principaux, mais en retenant que **cet effet est justement modéré** selon la modalité du deuxième facteur.
+
+Un effet principal significatif peut coexister avec une interaction. Il conserve son calcul, mais son résumé, s'il est donné seul, devient dès lors très incomplet.
+
+</div>
+
+## *ddl* du plan 2 × 2 (à apprendre) {.titre-tres-long}
+
+Pour $j=2$ modalités de pathologie et $k=2$ modalités de sexe :
+
+$$
+df_\text{Patho}=j-1=1,\qquad df_\text{Sexe}=k-1=1,
+$$
+
+$$
+df_{P\times S}=(j-1)\times (k-1)=1,
+$$
+
+$$
+df_{Aléatoire}=N-j\times k=`r nrow(dat)`-4=`r nrow(dat)-4`,\qquad df_{Total}=N-1=`r nrow(dat)-1`.
+$$
+
+Ainsi, le modèle utilise $1+1+1=3$ paramètre libres, soit exactement $(j\times k)-1=3$ pentes entre les quatre moyennes de cellules expérimentales. Les **degrés de liberté résiduels (composante aléatoire ou erreur)** sont de 92.
+
+On écrira donc $F(3,92)$ pour le test omnibus de l'ANOVA factorielle. Enfin, on a **95 degrés de liberté résiduels sous le modèle nul**.
+
+## Décomposer les moyennes de cellule {.smaller}
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+
+```{r}
+#| label: fig-decomposition-cellules
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Décomposition de la dispersion dans le plan factoriel 2 × 2.
+#|   <span class="note-figure"><em>Note.</em> Sous $H_0$, chaque observation est prédite par la moyenne générale. Le modèle factoriel complet prédit les quatre moyennes de cellule. Ainsi,  $SS_{\mathrm{Modèle}}=SS_{\mathrm{Pathologie}}+SS_{\mathrm{Sexe}}+SS_{\mathrm{Interaction}}$.</span>
+#| fig-width: 8.85
+#| fig-height: 3.15
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+# Préparation des quatre cellules du plan 2 × 2.
+dat_ss <- dat |> mutate(pathologie=droplevels(pathologie),sexe=droplevels(sexe))
+noms_path <- levels(dat_ss$pathologie); noms_sexe <- levels(dat_ss$sexe)
+stopifnot(length(noms_path)==2L,length(noms_sexe)==2L,all(noms_sexe %in% names(cols_sexe)))
+decalage <- setNames(c(-.16,.16),noms_sexe)
+cellules_ss <- dat_ss |> group_by(pathologie,sexe) |> summarise(n=n(),moyenne=mean(rappel_total),et=sd(rappel_total),.groups="drop") |> arrange(pathologie,sexe) |> mutate(x_cell=as.numeric(pathologie)+unname(decalage[as.character(sexe)]),cellule=paste(pathologie,sexe,sep=" — "),couleur=unname(cols_sexe[as.character(sexe)]))
+stopifnot(nrow(cellules_ss)==4L,all(cellules_ss$n>1L),length(unique(cellules_ss$n))==1L)
+
+# Les abscisses légèrement décalées séparent les observations sans modifier les valeurs.
+set.seed(20260911)
+dat_ss <- dat_ss |> left_join(cellules_ss |> select(pathologie,sexe,x_cell,moyenne),by=c("pathologie","sexe")) |> group_by(pathologie,sexe) |> arrange(id,.by_group=TRUE) |> mutate(x_obs=x_cell+runif(n(),-.09,.09)) |> ungroup()
+m_grand_ss <- mean(dat_ss$rappel_total)
+dat_ss <- dat_ss |> mutate(residu_h0=rappel_total-m_grand_ss,residu_h1=rappel_total-moyenne)
+
+# Sommes des carrés du modèle factoriel complet.
+fit_ss <- lm(rappel_total~pathologie*sexe,data=dat_ss); tab_ss <- anova(fit_ss)
+SS_pathologie <- unname(tab_ss["pathologie","Sum Sq"]); SS_sexe <- unname(tab_ss["sexe","Sum Sq"]); SS_interaction <- unname(tab_ss["pathologie:sexe","Sum Sq"])
+SS_erreur <- sum(dat_ss$residu_h1^2); SS_total <- sum(dat_ss$residu_h0^2); SS_modele <- SS_pathologie+SS_sexe+SS_interaction
+stopifnot(isTRUE(all.equal(SS_total,SS_modele+SS_erreur,tolerance=1e-8)))
+fmt_signe <- function(x,d=2) paste0(ifelse(x>=0,"+","−"),fmt(abs(x),d))
+
+# Fonctions utilisées pour dessiner les résidus et les violons.
+segments_residus <- function(d,prediction) list(x=as.vector(rbind(d$x_obs,d$x_obs,NA_real_)),y=as.vector(rbind(d$rappel_total,prediction,NA_real_)))
+violon_densite <- function(x0,y) {d <- density(y,from=0,to=48,n=401); largeur <- .135*d$y/max(d$y); list(x=c(x0-largeur,rev(x0+largeur)),y=c(d$x,rev(d$x)))}
+seg_h0 <- segments_residus(dat_ss,rep(m_grand_ss,nrow(dat_ss)))
+seg_h1 <- setNames(lapply(noms_sexe,function(s) {d <- filter(dat_ss,sexe==s); segments_residus(d,d$moyenne)}),noms_sexe)
+vl <- lapply(seq_len(nrow(cellules_ss)),function(k) {r <- cellules_ss[k,]; violon_densite(r$x_cell,filter(dat_ss,pathologie==r$pathologie,sexe==r$sexe)$rappel_total)})
+seg_modele <- list(x=as.vector(rbind(cellules_ss$x_cell,cellules_ss$x_cell,NA_real_)),y=as.vector(rbind(rep(m_grand_ss,4),cellules_ss$moyenne,NA_real_)))
+
+# Deux observations éloignées de leur moyenne illustrent les différents résidus.
+exemples <- dat_ss |> group_by(pathologie,sexe) |> slice_max(order_by=abs(residu_h1),n=1,with_ties=FALSE) |> ungroup() |> arrange(x_cell)
+ex_g <- exemples[1,]; ex_d <- exemples[nrow(exemples),]
+
+# Panneau gauche : distributions, observations et prédictions des deux modèles.
+p_gauche <- plot_ly()
+for (k in seq_len(nrow(cellules_ss))) {r <- cellules_ss[k,]; p_gauche <- p_gauche |> add_trace(x=vl[[k]]$x,y=vl[[k]]$y,type="scatter",mode="lines",line=list(color=r$couleur,width=1.3),fill="toself",fillcolor=plotly::toRGB(r$couleur,.16),hoverinfo="skip",showlegend=FALSE)}
+p_gauche <- p_gauche |> add_trace(x=seg_h0$x,y=seg_h0$y,type="scatter",mode="lines",line=list(color=couleurs$rouge,width=1.3),opacity=.52,hoverinfo="skip",showlegend=FALSE)
+for (s in noms_sexe) p_gauche <- p_gauche |> add_trace(x=seg_h1[[s]]$x,y=seg_h1[[s]]$y,type="scatter",mode="lines",visible=FALSE,line=list(color=cols_sexe[[s]],width=1.4),opacity=.62,hoverinfo="skip",showlegend=FALSE)
+p_gauche <- p_gauche |> add_trace(x=c(.55,length(noms_path)+.45),y=c(m_grand_ss,m_grand_ss),type="scatter",mode="lines",line=list(color=couleurs$rouge,width=3),hovertemplate=paste0("<b>H₀</b><br>ŷ = m<sub>··</sub> = ",fmt(m_grand_ss,2),"<extra></extra>"),showlegend=FALSE)
+for (s in noms_sexe) {r <- filter(cellules_ss,sexe==s) |> arrange(pathologie); p_gauche <- p_gauche |> add_trace(data=r,x=~x_cell,y=~moyenne,type="scatter",mode="lines+markers",visible=FALSE,line=list(color=cols_sexe[[s]],width=3),marker=list(color=cols_sexe[[s]],size=7,line=list(color="white",width=.8)),text=~paste0(cellule,"<br><b>m<sub>jk</sub> = ",fmt(moyenne,2),"</b>"),hoverinfo="text",showlegend=FALSE)}
+p_gauche <- p_gauche |> add_trace(x=seg_modele$x,y=seg_modele$y,type="scatter",mode="lines",visible=FALSE,line=list(color=couleurs$orange,width=4,dash="dot"),hoverinfo="skip",showlegend=FALSE)
+for (s in noms_sexe) {d <- filter(dat_ss,sexe==s); p_gauche <- p_gauche |> add_trace(data=d,x=~x_obs,y=~rappel_total,type="scatter",mode="markers",name=s,legendgroup=s,marker=list(color=cols_sexe[[s]],size=5.5,opacity=.76,line=list(color="white",width=.6)),text=~paste0(id,"<br>",pathologie," — ",sexe,"<br>Rappel total = ",rappel_total,"/48"),hoverinfo="text")}
+p_gauche <- p_gauche |> layout(xaxis=list(title=list(text="Pathologie",standoff=5),tickmode="array",tickvals=seq_along(noms_path),ticktext=noms_path,range=c(.55,length(noms_path)+.60),fixedrange=TRUE,zeroline=FALSE,showgrid=FALSE),yaxis=list(title=list(text="Rappel total (/48)",standoff=5),range=c(0,48),dtick=8,fixedrange=TRUE,zeroline=FALSE,gridcolor="rgba(63,77,83,.15)"))
+
+# Panneau droit : sommes des carrés globales et décomposition factorielle.
+p_droite <- plot_ly() |> add_trace(x=SS_total,y="SS<sub>total</sub>",type="bar",orientation="h",marker=list(color=plotly::toRGB(couleurs$rouge,.72)),hovertemplate=paste0("<b>SS<sub>total</sub></b> = ",fmt(SS_total,2),"<extra></extra>"),showlegend=FALSE) |> add_trace(x=SS_modele,y="SS<sub>modèle</sub>",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleurs$orange,.78)),hovertemplate=paste0("<b>SS<sub>modèle</sub></b> = ",fmt(SS_modele,2),"<extra></extra>"),showlegend=FALSE) |> add_trace(x=SS_erreur,y="SS<sub>erreur</sub>",type="bar",orientation="h",visible=FALSE,marker=list(color=plotly::toRGB(couleurs$bleu,.72)),hovertemplate=paste0("<b>SS<sub>erreur</sub></b> = ",fmt(SS_erreur,2),"<extra></extra>"),showlegend=FALSE) |> add_trace(x=SS_pathologie,y="Décomposition",type="bar",orientation="h",visible=FALSE,name="Pathologie",marker=list(color=couleurs$turquoise),hovertemplate=paste0("<b>Pathologie</b><br>SS = ",fmt(SS_pathologie,2),"<extra></extra>")) |> add_trace(x=SS_sexe,y="Décomposition",type="bar",orientation="h",visible=FALSE,name="Sexe",marker=list(color=couleurs$bleu),hovertemplate=paste0("<b>Sexe</b><br>SS = ",fmt(SS_sexe,2),"<extra></extra>")) |> add_trace(x=SS_interaction,y="Décomposition",type="bar",orientation="h",visible=FALSE,name="Interaction",marker=list(color=couleurs$orange),hovertemplate=paste0("<b>Interaction</b><br>SS = ",fmt(SS_interaction,2),"<extra></extra>")) |> add_trace(x=SS_erreur,y="Décomposition",type="bar",orientation="h",visible=FALSE,name="Erreur",marker=list(color=couleurs$gris),hovertemplate=paste0("<b>Erreur</b><br>SS = ",fmt(SS_erreur,2),"<extra></extra>")) |> layout(xaxis=list(title=list(text="Somme des carrés",standoff=5),range=c(0,SS_total*1.08),fixedrange=TRUE,zeroline=FALSE),yaxis=list(title="",fixedrange=TRUE,categoryorder="array",categoryarray=c("Décomposition","SS<sub>erreur</sub>","SS<sub>modèle</sub>","SS<sub>total</sub>")),barmode="stack")
+
+p <- subplot(p_gauche,p_droite,widths=c(.64,.36),margin=.085,titleX=TRUE,titleY=TRUE)
+
+# Les rôles rendent les boutons indépendants de la numérotation manuelle des traces.
+roles <- c(rep("toujours",4),"residus_h0",rep("residus_h1",2),"ligne_h0",rep("ligne_h1",2),"ecarts_modele",rep("toujours",2),"barre_total","barre_modele","barre_erreur",rep("decomposition",4))
+visible_si <- function(...) roles %in% c("toujours",...)
+vis_total <- visible_si("residus_h0","ligne_h0","barre_total")
+vis_erreur <- visible_si("residus_h1","ligne_h1","barre_erreur")
+vis_modele <- visible_si("ligne_h0","ligne_h1","ecarts_modele","barre_modele")
+vis_decomposition <- rep(TRUE,length(roles))
+
+# Titres et exemples affichés pour chaque étape.
+ann_commun <- function(titre,formule) list(list(x=.30,y=1.055,xref="paper",yref="paper",text=titre,showarrow=FALSE,xanchor="center",font=list(size=12.5,color="#222222")),list(x=.825,y=1.055,xref="paper",yref="paper",text=formule,showarrow=FALSE,xanchor="center",font=list(size=11.4,color="#222222")))
+ann_total <- c(ann_commun("<b>Résidus du modèle nul</b>",paste0("<b>SS<sub>total</sub> = Σ e<sub>i,H₀</sub><sup>2</sup> = ",fmt(SS_total,2),"</b>")),list(list(x=ex_g$x_obs,y=(ex_g$rappel_total+m_grand_ss)/2,xref="x",yref="y",text=paste0("<i>e</i><sub>i,H₀</sub> = Y<sub>i</sub> − ",fmt(m_grand_ss,2)),showarrow=TRUE,arrowhead=2,arrowcolor=couleurs$rouge,ax=-67,ay=-28,bgcolor="rgba(255,255,255,.94)",bordercolor=couleurs$rouge,borderwidth=1,borderpad=3,font=list(size=8.7)),list(x=ex_d$x_obs,y=(ex_d$rappel_total+m_grand_ss)/2,xref="x",yref="y",text=paste0("<i>e</i><sub>i,H₀</sub> = Y<sub>i</sub> − ",fmt(m_grand_ss,2)),showarrow=TRUE,arrowhead=2,arrowcolor=couleurs$rouge,ax=67,ay=28,bgcolor="rgba(255,255,255,.94)",bordercolor=couleurs$rouge,borderwidth=1,borderpad=3,font=list(size=8.7))))
+ann_erreur <- c(ann_commun("<b>Résidus du modèle factoriel complet</b>",paste0("<b>SS<sub>erreur</sub> = Σ e<sub>i,H₁</sub><sup>2</sup> = ",fmt(SS_erreur,2),"</b>")),list(list(x=ex_g$x_obs,y=(ex_g$rappel_total+ex_g$moyenne)/2,xref="x",yref="y",text=paste0("<i>e</i><sub>i,H₁</sub> = Y<sub>i</sub> − ",fmt(ex_g$moyenne,2)),showarrow=TRUE,arrowhead=2,arrowcolor=cols_sexe[[as.character(ex_g$sexe)]],ax=-67,ay=-28,bgcolor="rgba(255,255,255,.94)",bordercolor=cols_sexe[[as.character(ex_g$sexe)]],borderwidth=1,borderpad=3,font=list(size=8.7)),list(x=ex_d$x_obs,y=(ex_d$rappel_total+ex_d$moyenne)/2,xref="x",yref="y",text=paste0("<i>e</i><sub>i,H₁</sub> = Y<sub>i</sub> − ",fmt(ex_d$moyenne,2)),showarrow=TRUE,arrowhead=2,arrowcolor=cols_sexe[[as.character(ex_d$sexe)]],ax=67,ay=28,bgcolor="rgba(255,255,255,.94)",bordercolor=cols_sexe[[as.character(ex_d$sexe)]],borderwidth=1,borderpad=3,font=list(size=8.7))))
+ann_modele <- c(ann_commun("<b>Écart entre les prédictions des deux modèles</b>",paste0("<b>SS<sub>modèle</sub> = Σ n<sub>jk</sub>(m<sub>jk</sub> − m<sub>··</sub>)<sup>2</sup> = ",fmt(SS_modele,2),"</b>")),list(list(x=cellules_ss$x_cell[1],y=(m_grand_ss+cellules_ss$moyenne[1])/2,xref="x",yref="y",text=paste0("<b>Part modélisée</b><br>m<sub>jk</sub> − m<sub>··</sub> = ",fmt_signe(cellules_ss$moyenne[1]-m_grand_ss),"<br><span style='font-size:8px'>× ",cellules_ss$n[1]," observations</span>"),showarrow=TRUE,arrowhead=2,arrowcolor=couleurs$orange,ax=-76,ay=0,bgcolor="rgba(255,255,255,.95)",bordercolor=couleurs$orange,borderwidth=1,borderpad=3,font=list(size=8.6)),list(x=cellules_ss$x_cell[4],y=(m_grand_ss+cellules_ss$moyenne[4])/2,xref="x",yref="y",text=paste0("<b>Part modélisée</b><br>m<sub>jk</sub> − m<sub>··</sub> = ",fmt_signe(cellules_ss$moyenne[4]-m_grand_ss),"<br><span style='font-size:8px'>× ",cellules_ss$n[4]," observations</span>"),showarrow=TRUE,arrowhead=2,arrowcolor=couleurs$orange,ax=76,ay=0,bgcolor="rgba(255,255,255,.95)",bordercolor=couleurs$orange,borderwidth=1,borderpad=3,font=list(size=8.6))))
+ann_decomposition <- c(ann_commun("<b>Chaque écart à H₀ se décompose</b>",paste0("<b>",fmt(SS_total,2)," = ",fmt(SS_pathologie,2)," + ",fmt(SS_sexe,2)," + ",fmt(SS_interaction,2)," + ",fmt(SS_erreur,2),"</b>")),list(list(x=cellules_ss$x_cell[4],y=(m_grand_ss+cellules_ss$moyenne[4])/2,xref="x",yref="y",text="<b>Part modélisée</b>",showarrow=TRUE,arrowhead=2,arrowcolor=couleurs$orange,ax=-65,ay=-35,bgcolor="rgba(255,255,255,.94)",bordercolor=couleurs$orange,borderwidth=1,borderpad=3,font=list(size=8.7)),list(x=ex_g$x_obs,y=(ex_g$rappel_total+ex_g$moyenne)/2,xref="x",yref="y",text="<b>Résidu restant<br>(part aléatoire)</b>",showarrow=TRUE,arrowhead=2,arrowcolor=cols_sexe[[as.character(ex_g$sexe)]],ax=-79,ay=35,bgcolor="rgba(255,255,255,.94)",bordercolor=cols_sexe[[as.character(ex_g$sexe)]],borderwidth=1,borderpad=3,font=list(size=8.5))))
+sans_forme <- list()
+
+# Les quatre boutons reproduisent la progression visuelle du CM02.
+boutons <- list(list(method="update",label="SS<sub>total</sub>",args=list(list(visible=vis_total),list(annotations=ann_total,shapes=sans_forme))),list(method="update",label="SS<sub>erreur</sub>",args=list(list(visible=vis_erreur),list(annotations=ann_erreur,shapes=sans_forme))),list(method="update",label="SS<sub>modèle</sub>",args=list(list(visible=vis_modele),list(annotations=ann_modele,shapes=sans_forme))),list(method="update",label="Décomposition",args=list(list(visible=vis_decomposition),list(annotations=ann_decomposition,shapes=sans_forme))))
+
+p <- p |> layout(width=850,height=305,autosize=FALSE,dragmode=FALSE,hovermode="closest",barmode="stack",font=list(family="CMU Serif",color=couleurs$fond),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.82)",annotations=ann_total,shapes=sans_forme,legend=list(orientation="h",x=.015,xanchor="left",y=1.055,yanchor="bottom",font=list(size=9.1)),updatemenus=list(list(type="buttons",direction="right",active=0,showactive=TRUE,x=.99,xanchor="right",y=1.30,yanchor="top",font=list(size=9,color="#222222"),bgcolor="rgba(255,255,255,1)",bordercolor=couleurs$orange,borderwidth=1,pad=list(r=0,t=0),buttons=boutons)),margin=list(l=72,r=24,t=62,b=53)) |> config(displayModeBar=FALSE,responsive=FALSE)
+
+p$elementId <- "plotly-anova-factorielle-ss"; p
+```
+:::
+
+## Formules factorisées (annexe) {.smaller .titre-tres-long}
+
+<div style="font-size:0.96em;">
+
+Une fois $n$, $m$ et $s$ connus, aucun score individuel n’est nécessaire :
+
+$$
+SS_{Pathologie}=\sum_j n_{j\cdot}m_{j\cdot}^2-Nm_{\cdot\cdot}^2,
+\qquad
+SS_{Sexe}=\sum_k n_{\cdot k}m_{\cdot k}^2-Nm_{\cdot\cdot}^2,
+$$
+
+$$
+SS_{P\times S}=\sum_j\sum_k n_{jk}m_{jk}^2
+-\sum_j n_{j\cdot}m_{j\cdot}^2-\sum_k n_{\cdot k}m_{\cdot k}^2+Nm_{\cdot\cdot}^2,
+$$
+
+$$
+SS_{Aléatoire}=\sum_j\sum_k(n_{jk}-1)s_{jk}^2,
+\qquad
+SS_{Total}=(N-1)s_Y^2.
+$$
+**Notations.** $j$ indexe la modalité de la Pathologie, et $k$ indexe celle du Sexe biologique. Les lettres $n$, $m$ et $s$ représentent respectivement un effectif, une moyenne et un écart-type. Les indices $jk$ désignent une cellule ; un point indique la marginalisation en lieu et place du facteur correspondant. Enfin, $N$ est l’effectif total de l'échantillon entier, $Y$ le score de rappel total et $SS_{Pathologie}$, $SS_{Sexe}$, $SS_{P\times S}$, $SS_{Aléatoire}$ et $SS_{Total}$ les sommes des carrés associées aux deux facteurs, à leur interaction, à la composante aléatoire (l’erreur du modèle) et à la dispersion totale (donc sous $H_0$).
+
+*Nota* : Ces formules ne sont pas à apprendre, mais il faut savoir interpréter les sommes des carrés.
+</div>
+
+## Statistiques descriptives des quatre cellules 
+
+::: {style="font-size:1.35em;"}
+
+| Pathologie $j$ | Sexe $k$ | Effectif $n_{jk}$ | Moyenne $m_{jk}$ | Ecart-type $s_{jk}$ |
+|:---|:---:|:---:|:---:|:---:|
+| Alzheimer | Homme | `r resume_cell |> filter(pathologie=="Alzheimer",sexe=="Homme") |> pull(n)` | `r fmt(resume_cell |> filter(pathologie=="Alzheimer",sexe=="Homme") |> pull(moyenne),1)` | `r fmt(resume_cell |> filter(pathologie=="Alzheimer",sexe=="Homme") |> pull(et),1)` |
+| Alzheimer | Femme | `r resume_cell |> filter(pathologie=="Alzheimer",sexe=="Femme") |> pull(n)` | `r fmt(resume_cell |> filter(pathologie=="Alzheimer",sexe=="Femme") |> pull(moyenne),1)` | `r fmt(resume_cell |> filter(pathologie=="Alzheimer",sexe=="Femme") |> pull(et),1)` |
+| DCL | Homme | `r resume_cell |> filter(pathologie=="DCL",sexe=="Homme") |> pull(n)` | `r fmt(resume_cell |> filter(pathologie=="DCL",sexe=="Homme") |> pull(moyenne),1)` | `r fmt(resume_cell |> filter(pathologie=="DCL",sexe=="Homme") |> pull(et),1)` |
+| DCL | Femme | `r resume_cell |> filter(pathologie=="DCL",sexe=="Femme") |> pull(n)` | `r fmt(resume_cell |> filter(pathologie=="DCL",sexe=="Femme") |> pull(moyenne),1)` | `r fmt(resume_cell |> filter(pathologie=="DCL",sexe=="Femme") |> pull(et),1)` |
+
+La moyenne générale vaut $m_{\cdot\cdot}=`r fmt(m_grand,2)`$.
+:::
+
+## Exemple : calcul de SSₚ
+
+::: {style="font-size:1.08em;"}
+
+Pour la pathologie :
+
+$$
+SS_{Pathologie}=\sum_jn_{j\cdot}(m_{j\cdot}-m_{\cdot\cdot})^2
+$$
+
+$$
+=`r resume_path |> filter(pathologie=="Alzheimer") |> pull(n)`(`r fmt(m_path["Alzheimer"],2)`-`r fmt(m_grand,2)`)^2
++`r resume_path |> filter(pathologie=="DCL") |> pull(n)`(`r fmt(m_path["DCL"],2)`-`r fmt(m_grand,2)`)^2
+$$
+
+$$
+=`r fmt(ss_path,2)`.
+$$
+
+Le facteur possède 1 ddl : $MS_{Pathologie}=SS_{Pathologie}=`r fmt(ss_path,2)`$.
+:::
+
+## Exemple : calcul de l’erreur
+
+::: {style="font-size:0.90em;"}
+
+La variabilité résiduelle est la dispersion **dans** chaque cellule expérimentale, donc en intramodalité :
+
+$$
+SS_{Aléatoire}=\sum_{j=1}^{2}\sum_{k=1}^{2}(n_{jk}-1)s_{jk}^2=`r fmt(ss_err,2)`.
+$$
+
+Ses ddl correspondent aux informations indépendantes restantes après estimation des quatre moyennes :
+
+$$
+df_{Aléatoire}=\sum_j\sum_k(n_{jk}-1)=N-ab=`r nrow(dat)`-4=`r nrow(dat)-4`.
+$$
+
+Le carré moyen résiduel vaut donc :
+
+$$
+MS_{Aléatoire}=\frac{SS_{Aléatoire}}{df_{Aléatoire}}=\frac{`r fmt(ss_err,2)`}{`r nrow(dat)-4`}=`r fmt(ss_err/(nrow(dat)-4),2)`.
+$$
+
+:::
+
+## Décomposition des ddl (à apprendre) {.titre-tres-long}
+
+::: {style="font-size:1.18em;"}
+
+| Source | Formule | ddl |
+|:---|:---:|:---:|
+| Pathologie $P$ | $j-1$ | 1 |
+| Sexe $S$ | $k-1$ | 1 |
+| $P\times S$ | $(j-1)(k-1)$ | 1 |
+| Aléatoire, Erreur ou Résiduel | $N-jk$ | `r nrow(dat)-4` |
+| Total, $H_0$ | $N-1$ | `r nrow(dat)-1` |
+
+$$
+df_{Total}=df_P+df_S+df_{P\times S}+df_{Aléatoire}=1+1+1+`r nrow(dat)-4`=`r nrow(dat)-1`.
+$$
+
+:::
+
+## Trois tests $F$, un même dénominateur
+
+Chaque source systématique possède son carré moyen :
+
+$$
+MS_q=\frac{SS_q}{df_q},\qquad q\in\{P,S,P\times S\},
+$$
+
+avec la deuxième partie ($q\in\{P,S,P\times S\}$) qui se lit "$q$ appartenant à l'ensemble des variables explicatives P, S et leur interaction. **Dans un plan intersujets, les trois tests utilisent le même carré moyen d’erreur** :
+
+$$
+F_P=\frac{MS_P}{MS_{Aléatoire}},\qquad
+F_S=\frac{MS_S}{MS_{Aléatoire}},\qquad
+F_{P\times S}=\frac{MS_{P\times S}}{MS_{Aléatoire}}.
+$$
+
+Ici encore, un rapport du $F$ nettement supérieur à 1 indique donc que la sous-composante systématique d'intérêt réduit la variance totale.
+
+## Les tailles d'effet partielles (à apprendre) {.titre-tres-long}
+
+<div style="font-size:1.22em;">
+
+→ La significativité dépend de la **taille de l’effet** et de la **taille de l’échantillon**. Une taille d’effet aide donc à apprécier l’importance d’une différence.
+
+
+→ Une **taille d’effet partielle** rapporte un effet à **cet effet et à l’erreur résiduelle**, en laissant les autres effets hors du dénominateur. Ainsi, **l’$\eta_p^2$ exprime la proportion de cette variance attribuable à l’effet étudié, en contrôlant pour les autres effets**. Sa valeur dépend du modèle et des variables incluses. Les tailles d’effet partielles se comparent donc surtout entre **études de structure similaire**.
+</div>
+
+## L’eta carré partiel
+
+::: {style="font-size:1.08em;"}
+
+Pour un effet $q$ :
+
+$$
+\eta_p^2=\frac{SS_q}{SS_q+SS_{Aléatoire}}.
+$$
+
+Il décrit la proportion de variance attribuable à $q$ **parmi la variance de $q$ et l’erreur**, **au sein de l'échantillon**, après mise à l’écart des autres effets.
+
+*Nota* : Les $\eta_p^2$ des différents effets ne sont pas additifs puisque leur dénominateurs sont différents pour chaque facteur : leur somme peut dépasser la proportion de variance totale expliquée. Les $\eta^2$ non partiels, eux, sont additifs.
+:::
+
+## L’omega carré partiel (à apprendre) {.titre-tres-long}
+
+<div style="font-size:0.92em;">
+L’$\eta_p^2$ reste biaisé car non corrigé par les ddl. L’omega carré partiel retranche une pénalité liée aux ddl :
+
+$$
+\omega_p^2=
+\frac{SS_q-df_qMS_{Aléatoire}}{SS_q+(N-df_q)MS_{Aléatoire}}.
+$$
+
+
+L'$\omega_p^2$ vise ainsi à fournir une meilleure estimation de l'effet dans la population.
+
+**A apprendre : ** Une estimation négative peut survenir lorsque $F<1$. Je conseille de la rapporter telle quelle et de bien interpréter en concluant que le paramètre concerné a un effet négligeable une fois les autres paramètres contrôlés. 
+
+Ici encore, les $\omega_p^2$ ne sont pas additifs à cause de leur dénominateurs différents. En revanche, les $\omega^2$ non partiels le sont et somment à la variance totale ($H_0$) estimée pour la population.
+
+*Note.* La formule est annexe.
+
+</div>
+
+## Table d’ANOVA factorielle
+
+::: {style="font-size:1.0em;"}
+
+| Source | $SS$ | ddl | $MS$ | $F$ | $p$ | $\eta^2$ | $\eta_p^2$ |
+|:---|---:|---:|---:|---:|:---:|---:|---:|
+| Pathologie | `r fmt(ss_path,2)` | 1 | `r fmt(ss_path,2)` | `r fmt(res_aov$F[1],2)` | `r fmt_p(res_aov$p[1])` | `r fmt(res_aov$eta2[1],3)` | `r fmt(res_aov$eta2p[1],3)` |
+| Sexe | `r fmt(ss_sexe,2)` | 1 | `r fmt(ss_sexe,2)` | `r fmt(res_aov$F[2],2)` | `r fmt_p(res_aov$p[2])` | `r fmt(res_aov$eta2[2],3)` | `r fmt(res_aov$eta2p[2],3)` |
+| P × S | `r fmt(ss_int,2)` | 1 | `r fmt(ss_int,2)` | `r fmt(res_aov$F[3],2)` | `r fmt_p(res_aov$p[3])` | `r fmt(res_aov$eta2[3],3)` | `r fmt(res_aov$eta2p[3],3)` |
+| Aléatoire | `r fmt(ss_err,2)` | `r nrow(dat)-4` | `r fmt(ss_err/(nrow(dat)-4),2)` |  |  |  |  |
+| Total | `r fmt(ss_tot,2)` | `r nrow(dat)-1` |  |  |  |  |  |
+
+La significativité des trois effets se teste donc par le $F$, se lit dans leur *p-value*, leur intérêt pratique dans leur taille d'effet, mais le sens des différences de moyennes s'obtient à l'aide des estimateurs (coefficients pour les pentes). 
+
+Ici, utiliser l'eta carré est **ok-ish** car il y n'y a qu'un seul paramètre libre par effet, même si l'$\omega^2$ reste préférable. **Au-delà cela devient impératif de privilégier l'$\omega^2$ ou sa version partielle.**
+:::
+
+## Types de somme des carrés (annexe) {.smaller .titre-tres-long}
+
+::: {style="font-size:1.02em;"}
+
+Il existe trois types de somme des carrés proposés par les logiciels.
+
+| Type | Principe | Quand l'utiliser ? |
+|:---:|:---|:---|
+| **I** séquentiel | chaque terme est testé dans l'ordre d'entrée dans le modèle | seulement si l'ordre des VI a un sens théorique |
+| **II** marginal | chaque effet principal est ajusté pour les autres effets principaux | à privilégier dans un plan **déséquilibré sans interaction** |
+| **III** partiel | chaque terme est ajusté pour **tous les autres**, interactions comprises | souvent utilisé dans un plan **déséquilibré avec interaction** ; pour interpréter les effets principaux on utilise des **contrastes centrés** pour les autres facteurs |
+
+*Note.* Si le plan factoriel est équilibré, alors les sommes des carrés de type I, II et III ne diffèrent pas. En ANCOVA (donc avec VI quali et quanti), il faudra privilégier le type III, car la covariable (VI quanti) engendre un déséquilibre systématique du plan expérimental : les effectifs ne sont plus équilibrés tout le long de la VI.
+
+:::
+
+
+```{r}
+#| label: setup-suite-plan-factoriel
+#| include: false
+
+anova_type_iii <- function(data, formula, noms) {
+  mf <- model.frame(formula, data=data); y <- model.response(mf)
+  X <- model.matrix(formula, data=mf); affectation <- attr(X,"assign")
+  termes <- attr(terms(formula),"term.labels")
+  complet <- lm.fit(X,y); ss_e <- sum(complet$residuals^2)
+  rang <- complet$rank; ddl_e <- nrow(X)-rang; cm_e <- ss_e/ddl_e
+  ss_t <- sum((y-mean(y))^2)
+  table <- bind_rows(lapply(seq_along(termes),function(i){
+    reduit <- lm.fit(X[,affectation!=i,drop=FALSE],y)
+    ss <- sum(reduit$residuals^2)-ss_e
+    ddl <- rang-reduit$rank
+    F <- (ss/ddl)/cm_e
+    data.frame(source=unname(noms[termes[i]]),sc=ss,ddl=ddl,cm=ss/ddl,
+      F=F,p=pf(F,ddl,ddl_e,lower.tail=FALSE),
+      omega_p2=(ss-ddl*cm_e)/(ss+ss_e+cm_e),
+      omega2=(ss-ddl*cm_e)/(ss_t+cm_e))
+  }))
+  attr(table,"sc_aleatoire") <- ss_e; attr(table,"ddl_aleatoire") <- ddl_e
+  attr(table,"cm_aleatoire") <- cm_e; attr(table,"sc_totale") <- ss_t
+  attr(table,"ddl_total") <- length(y)-1L
+  table
+}
+
+table_anova_affichee <- function(table) {
+  sortie <- bind_rows(
+    table,
+    data.frame(
+      source="Aléatoire",
+      sc=attr(table,"sc_aleatoire"),
+      ddl=attr(table,"ddl_aleatoire"),
+      cm=attr(table,"cm_aleatoire"),
+      F=NA,
+      p=NA,
+      omega_p2=NA,
+      omega2=NA
+    ),
+    data.frame(
+      source="Total",
+      sc=attr(table,"sc_totale"),
+      ddl=attr(table,"ddl_total"),
+      cm=NA,
+      F=NA,
+      p=NA,
+      omega_p2=NA,
+      omega2=NA
+    )
+  )
+
+  data.frame(
+    Source=sortie$source,
+    SC=fmt(sortie$sc,2),
+    ddl=sortie$ddl,
+    CM=ifelse(is.na(sortie$cm), "", fmt(sortie$cm,2)),
+    F=ifelse(is.na(sortie$F), "", fmt(sortie$F,2)),
+    p=ifelse(is.na(sortie$p), "", fmt_p(sortie$p)),
+    omega_p2=ifelse(is.na(sortie$omega_p2), "", fmt(sortie$omega_p2,3)),
+    omega2=ifelse(is.na(sortie$omega2), "", fmt(sortie$omega2,3)),
+    check.names=FALSE
+  )
+}
+
+valeur <- function(table,source,colonne)
+  table[match(source,table$source),colonne][[1]]
+
+# On prolonge le plan 2 × 2 équilibré déjà utilisé dans le cours.
+base_2x2 <- dat |>
+  select(id,pathologie,sexe,age,rappel_total)
+
+# Table de type III du plan 2 × 2. Les contrastes centrés rendent les tests des
+# effets principaux cohérents avec les moyennes marginales du plan équilibré.
+contraste_sexe_planifie <- function(x) {
+  stopifnot(identical(levels(x),c("Homme","Femme")))
+  matrix(c(-.5,.5),ncol=1,dimnames=list(levels(x),"1"))}
+
+dat_2x2_contrastes <- base_2x2
+contraste_pathologie_2x2 <- function(x) {
+  stopifnot(identical(levels(x),c("Alzheimer","DCL")))
+  matrix(c(-.5,.5),ncol=1,dimnames=list(levels(x),"1"))}
+contrasts(dat_2x2_contrastes$pathologie) <- contraste_pathologie_2x2(dat_2x2_contrastes$pathologie)
+contrasts(dat_2x2_contrastes$sexe) <- contraste_sexe_planifie(dat_2x2_contrastes$sexe)
+
+noms_2x2 <- c(
+  pathologie="Pathologie",
+  sexe="Sexe",
+  `pathologie:sexe`="Pathologie × Sexe"
+)
+
+tab_2x2 <- anova_type_iii(
+  dat_2x2_contrastes,
+  rappel_total ~ pathologie*sexe,
+  noms_2x2
+)
+
+# Contrôles : moyenne pédagogique de 45/48, proche de la moyenne de 44,9/48
+# des participants sans démence à trois ans dans la cohorte 3C (Mura et al., 2017).
+z_controle <- as.numeric(scale(qnorm(ppoints(n_cell))))
+controle <- bind_rows(
+  tibble(sexe="Homme",rappel_total=round(44+1.2*sample(z_controle, size=n_cell, replace=FALSE))),
+  tibble(sexe="Femme",rappel_total=round(46+1.2*sample(z_controle, size=n_cell, replace=FALSE)))
+) |>
+  mutate(id=sprintf("P%03d",nrow(base_2x2)+row_number()),
+         pathologie="Contrôle")
+# Contrôles plus jeunes en moyenne que les groupes pathologiques.
+set.seed(20260911)
+z_controle <- as.numeric(scale(qnorm(ppoints(n_cell))))
+
+simuler_controle <- function(sexe,mu72) {
+  za <- sample(z_age)
+  ze <- sample(z_norm)
+  while (abs(cor(za,ze))>.03) ze <- sample(z_norm)
+
+  age <- 70+3.5*za
+
+  tibble(
+    sexe=sexe,
+    age=round(age,1),
+    rappel_total=pmin(
+      48,
+      pmax(0,round(mu72+beta_age*(age-72)+1.2*ze))
+    )
+  )
+}
+
+controle <- bind_rows(
+  simuler_controle("Homme",44),
+  simuler_controle("Femme",46)
+) |>
+  mutate(
+    id=sprintf("P%03d",nrow(base_2x2)+row_number()),
+    pathologie="Contrôle"
+  )
+
+dat_3x2 <- bind_rows(base_2x2,controle) |>
+  mutate(
+    pathologie=factor(
+      as.character(pathologie),
+      levels=c("Alzheimer","DCL","Contrôle")
+    ),
+    sexe=factor(
+      as.character(sexe),
+      levels=c("Homme","Femme")
+    )
+  )
+
+stopifnot(
+  all(table(dat_3x2$pathologie,dat_3x2$sexe)==n_cell),
+  !anyNA(dat_3x2$age)
+)
+
+# Colonnes de codage associées aux contrastes planifiés de Pathologie.
+# Convention pédagogique :
+#   X1 compare Contrôle à la moyenne des deux groupes de patients ;
+#   X2 compare DCL à Alzheimer ;
+#   chaque comparaison est normalisée de sorte que Delta X = 1.
+#
+# Ordre des modalités : Alzheimer, DCL, Contrôle.
+contraste_pathologie_3x2 <- function(x) {
+  stopifnot(identical(levels(x),c("Alzheimer","DCL","Contrôle")))
+  matrix(
+    c(
+      -1/3,-1/3, 2/3,   # X1 : Contrôle vs Patients
+      -1/2, 1/2, 0      # X2 : DCL vs Alzheimer
+    ),
+    ncol=2,
+    dimnames=list(levels(x),c("1","2"))
+  )
+}
+
+# Vérifications de la convention de codage.
+X_path_3x2 <- contraste_pathologie_3x2(dat_3x2$pathologie)
+stopifnot(
+  isTRUE(all.equal(unname(colSums(X_path_3x2)),c(0,0),tolerance=1e-12)),
+  isTRUE(all.equal(drop(crossprod(X_path_3x2)[1,2]),0,tolerance=1e-12)),
+  isTRUE(all.equal(2/3-(-1/3),1,tolerance=1e-12)),
+  isTRUE(all.equal(1/2-(-1/2),1,tolerance=1e-12))
+)
+
+# Données de l’ANCOVA.
+dat_3x2_ancova <- dat_3x2 |>
+  mutate(age_c=age-72)
+
+contrasts(dat_3x2_ancova$pathologie) <-
+  contraste_pathologie_3x2(dat_3x2_ancova$pathologie)
+contrasts(dat_3x2_ancova$sexe) <-
+  contraste_sexe_planifie(dat_3x2_ancova$sexe)
+
+# Mêmes contrastes planifiés pour l’ANOVA factorielle.
+dat_3x2_contrastes <- dat_3x2
+contrasts(dat_3x2_contrastes$pathologie) <-
+  contraste_pathologie_3x2(dat_3x2_contrastes$pathologie)
+contrasts(dat_3x2_contrastes$sexe) <-
+  contraste_sexe_planifie(dat_3x2_contrastes$sexe)
+
+noms_3x2 <- c(
+  pathologie="Pathologie",
+  sexe="Sexe",
+  `pathologie:sexe`="Pathologie × Sexe"
+)
+
+tab_3x2 <- anova_type_iii(
+  dat_3x2_contrastes,
+  rappel_total ~ pathologie*sexe,
+  noms_3x2
+)
+
+fit_3x2 <- lm(rappel_total ~ pathologie*sexe,data=dat_3x2_contrastes)
+
+mse_3x2 <- attr(tab_3x2,"cm_aleatoire")
+ddl_erreur_3x2 <- attr(tab_3x2,"ddl_aleatoire")
+
+ajouter_omega_1ddl <- function(table) {
+  table |>
+    mutate(
+      omega2=(sc-mse_3x2)/(ss_total_3x2+mse_3x2),
+      omega_p2=(sc-mse_3x2)/(sc+ss_erreur_3x2+mse_3x2))}
+
+cellules_3x2 <- dat_3x2 |>
+  group_by(pathologie,sexe) |>
+  summarise(n=n(),moyenne=mean(rappel_total),ecart_type=sd(rappel_total),
+            se=ecart_type/sqrt(n),.groups="drop")
+
+# ANCOVA 3 × 2 avec pente d’âge commune.
+fit_ancova <- lm(
+  rappel_total ~ pathologie*sexe + age_c,
+  data=dat_3x2_ancova
+)
+
+# Tests de type III et tailles d’effet partielles ajustées pour l’âge.
+noms_ancova <- c(pathologie="Pathologie",sexe="Sexe",age_c="Âge",`pathologie:sexe`="Pathologie × Sexe")
+tab_ancova <- anova_type_iii(dat_3x2_ancova,rappel_total~pathologie*sexe+age_c,noms_ancova)
+ss_erreur_ancova <- attr(tab_ancova,"sc_aleatoire"); mse_ancova <- attr(tab_ancova,"cm_aleatoire")
+ddl_erreur_ancova <- attr(tab_ancova,"ddl_aleatoire")
+res_ancova <- tab_ancova |> mutate(eta2p=sc/(sc+ss_erreur_ancova),omega2p=omega_p2)
+
+# Contrastes entre les moyennes ajustées à 72 ans.
+X_cellule <- function(path,sexe) {
+  nd <- tibble(pathologie=factor(path,levels=levels(dat_3x2_ancova$pathologie)),
+    sexe=factor(sexe,levels=levels(dat_3x2_ancova$sexe)),age_c=0)
+  X <- model.matrix(delete.response(terms(fit_ancova)),nd,contrasts.arg=fit_ancova$contrasts)
+  setNames(drop(X[,names(coef(fit_ancova)),drop=FALSE]),names(coef(fit_ancova)))
+}
+tester_contraste_ancova <- function(L) {
+  estimation <- sum(L*coef(fit_ancova))
+  se <- sqrt(drop(t(L)%*%vcov(fit_ancova)%*%L)); F <- (estimation/se)^2; sc <- F*mse_ancova
+  tibble(estimation,F,p=pf(F,1,ddl_erreur_ancova,lower.tail=FALSE),
+    eta2p=sc/(sc+ss_erreur_ancova),
+    omega2p=(sc-mse_ancova)/(sc+ss_erreur_ancova+mse_ancova))
+}
+
+L_sexe <- function(g) X_cellule(g,"Femme")-X_cellule(g,"Homme")
+contraste_int_ancova <- tester_contraste_ancova(L_sexe("DCL")-L_sexe("Alzheimer"))
+effets_simples_ancova <- bind_rows(lapply(levels(dat_3x2_ancova$pathologie),function(g)
+  tester_contraste_ancova(L_sexe(g)) |> mutate(pathologie=g))) |>
+  mutate(p_holm=p.adjust(p,method="holm"))
+
+b_age <- coef(fit_ancova)["age_c"]
+p_age <- summary(fit_ancova)$coefficients[
+  "age_c","Pr(>|t|)"
+]
+
+# Moyennes prédites dans les six cellules à 72 ans.
+grille72 <- expand_grid(
+  pathologie=factor(
+    levels(dat_3x2_ancova$pathologie),
+    levels=levels(dat_3x2_ancova$pathologie)
+  ),
+  sexe=factor(
+    levels(dat_3x2_ancova$sexe),
+    levels=levels(dat_3x2_ancova$sexe)
+  ),
+  age_c=0
+)
+
+grille72$ajustee <- predict(fit_ancova,newdata=grille72)
+
+grille72 <- grille72 |>
+  left_join(
+    cellules_3x2 |>
+      select(pathologie,sexe,brute=moyenne),
+    by=c("pathologie","sexe")
+  )
+
+# Test conjoint de l’homogénéité des six pentes.
+fit_pentes <- lm(
+  rappel_total ~ age_c*pathologie*sexe,
+  data=dat_3x2_ancova
+)
+
+test_pentes <- anova(fit_ancova,fit_pentes)
+p_pentes <- test_pentes$`Pr(>F)`[2]
+
+r2_aov <- summary(fit_3x2)$r.squared
+r2_ancova <- summary(fit_ancova)$r.squared
+
+marginales_pathologie <- dat_3x2 |>
+  group_by(pathologie) |>
+  summarise(m_path=mean(rappel_total),.groups="drop")
+
+marginales_sexe <- dat_3x2 |>
+  group_by(sexe) |>
+  summarise(m_sexe=mean(rappel_total),.groups="drop")
+
+m_grand_3x2 <- mean(dat_3x2$rappel_total)
+
+decomp_3x2 <- cellules_3x2 |>
+  left_join(marginales_pathologie,by="pathologie") |>
+  left_join(marginales_sexe,by="sexe") |>
+  mutate(
+    prediction_additive=m_path+m_sexe-m_grand_3x2,
+    ecart_interaction=moyenne-prediction_additive
+  )
+
+# Effets simples du sexe dans chacune des trois pathologies.
+effets_simples_sexe <- bind_rows(lapply(levels(dat_3x2$pathologie),function(groupe){
+  d <- filter(dat_3x2,pathologie==groupe)
+  femme <- d$rappel_total[d$sexe=="Femme"]
+  homme <- d$rappel_total[d$sexe=="Homme"]
+  difference <- mean(femme)-mean(homme)
+  sc <- difference^2/(1/length(femme)+1/length(homme))
+  F <- sc/mse_3x2
+  data.frame(pathologie=groupe,difference=difference,sc=sc,
+    ddl1=1L,ddl2=ddl_erreur_3x2,F=F,
+    p=pf(F,1,ddl_erreur_3x2,lower.tail=FALSE))
+})) |>
+  mutate(p_holm=p.adjust(p,method="holm"))
+
+# Treatment coding : même modèle, autre interprétation des coefficients.
+# Référence = Contrôle / Homme.
+dat_3x2_treatment <- dat_3x2 |>
+  mutate(
+    pathologie=relevel(pathologie,ref="Contrôle"),
+    sexe=relevel(sexe,ref="Homme")
+  )
+
+contrasts(dat_3x2_treatment$pathologie) <-
+  contr.treatment(levels(dat_3x2_treatment$pathologie),base=1)
+contrasts(dat_3x2_treatment$sexe) <-
+  contr.treatment(levels(dat_3x2_treatment$sexe),base=1)
+
+fit_3x2_treatment <- lm(
+  rappel_total ~ pathologie*sexe,
+  data=dat_3x2_treatment
+)
+
+coef_treatment_3x2 <- coef(summary(fit_3x2_treatment))
+
+# Quantités communes aux douze diapositives du plan 3 × 2.
+ss_path_3x2 <- valeur(tab_3x2,"Pathologie","sc")
+ss_sexe_3x2 <- valeur(tab_3x2,"Sexe","sc")
+ss_interaction_3x2 <- valeur(tab_3x2,"Pathologie × Sexe","sc")
+ss_erreur_3x2 <- attr(tab_3x2,"sc_aleatoire")
+ss_total_3x2 <- attr(tab_3x2,"sc_totale")
+ddl_path_3x2 <- valeur(tab_3x2,"Pathologie","ddl")
+ddl_sexe_3x2 <- valeur(tab_3x2,"Sexe","ddl")
+ddl_interaction_3x2 <- valeur(tab_3x2,"Pathologie × Sexe","ddl")
+
+# Tailles d’effet des comparaisons à 1 ddl.
+ajouter_omega_1ddl <- function(table) {
+  table |>
+    mutate(
+      omega2=(sc-mse_3x2)/(ss_total_3x2+mse_3x2),
+      omega_p2=(sc-mse_3x2)/(sc+ss_erreur_3x2+mse_3x2)
+    )
+}
+
+effets_simples_sexe <- ajouter_omega_1ddl(effets_simples_sexe)
+
+# Vérification de la factorisation par les statistiques descriptives.
+ss_path_desc <- 2*n_cell*sum((marginales_pathologie$m_path-m_grand_3x2)^2)
+ss_sexe_desc <- 3*n_cell*sum((marginales_sexe$m_sexe-m_grand_3x2)^2)
+ss_interaction_desc <- n_cell*sum(decomp_3x2$ecart_interaction^2)
+ss_erreur_desc <- sum((cellules_3x2$n-1)*cellules_3x2$ecart_type^2)
+stopifnot(
+  isTRUE(all.equal(ss_path_desc,ss_path_3x2,tolerance=1e-8)),
+  isTRUE(all.equal(ss_sexe_desc,ss_sexe_3x2,tolerance=1e-8)),
+  isTRUE(all.equal(ss_interaction_desc,ss_interaction_3x2,tolerance=1e-8)),
+  isTRUE(all.equal(ss_erreur_desc,ss_erreur_3x2,tolerance=1e-8)),
+  isTRUE(all.equal(ss_total_3x2,ss_path_3x2+ss_sexe_3x2+
+    ss_interaction_3x2+ss_erreur_3x2,tolerance=1e-8)))
+
+# Deux contrastes planifiés orthogonaux décomposent les 2 ddl de Pathologie.
+# IMPORTANT :
+#   - X_path_3x2 contient les COLONNES DE CODAGE du modèle, avec Delta X = 1 ;
+#   - poids_contrastes_path_3x2 contient les POIDS c_j, normalisés pour que
+#     sum(c_j m_j) soit directement la différence de moyennes souhaitée.
+m_path_3x2 <- setNames(marginales_pathologie$m_path,
+  as.character(marginales_pathologie$pathologie))
+n_path_3x2 <- setNames(rep(2*n_cell,length(m_path_3x2)),names(m_path_3x2))
+
+poids_contrastes_path_3x2 <- list(
+  c("Alzheimer"=-1/2,"DCL"=-1/2,"Contrôle"=1),
+  c("Alzheimer"=-1,"DCL"=1,"Contrôle"=0)
+)
+
+noms_contrastes_path_3x2 <- c(
+  "$m_{Contrôle}$ - $m_{Patients}$",
+  "$m_{DCL}$ − $m_{Alzheimer}$"
+)
+
+# Dans ce plan équilibré, c_j = X_j / sum(X_j^2).
+stopifnot(
+  isTRUE(all.equal(
+    unname(X_path_3x2[,1]/sum(X_path_3x2[,1]^2)),
+    unname(poids_contrastes_path_3x2[[1]]),
+    tolerance=1e-12
+  )),
+  isTRUE(all.equal(
+    unname(X_path_3x2[,2]/sum(X_path_3x2[,2]^2)),
+    unname(poids_contrastes_path_3x2[[2]]),
+    tolerance=1e-12
+  ))
+)
+
+contrastes_pathologie_3x2 <- bind_rows(
+  lapply(seq_along(poids_contrastes_path_3x2),function(i){
+    poids <- poids_contrastes_path_3x2[[i]]
+    estimation <- sum(poids*m_path_3x2[names(poids)])
+    sc <- estimation^2/sum(poids^2/n_path_3x2[names(poids)])
+    data.frame(
+      contraste=noms_contrastes_path_3x2[i],
+      estimation=estimation,
+      sc=sc,
+      F=sc/mse_3x2,
+      p=pf(sc/mse_3x2,1,ddl_erreur_3x2,lower.tail=FALSE)
+    )
+  })
+)
+
+contrastes_pathologie_3x2 <-
+  ajouter_omega_1ddl(contrastes_pathologie_3x2)
+
+stopifnot(isTRUE(all.equal(
+  sum(contrastes_pathologie_3x2$sc),
+  ss_path_3x2,
+  tolerance=1e-8
+)))
+
+# Les mêmes poids de contraste de Pathologie décomposent les 2 ddl de
+# l'interaction lorsqu'ils sont multipliés par le contraste Femme − Homme.
+m_cell_3x2 <- xtabs(moyenne ~ pathologie + sexe,data=cellules_3x2)
+m_sexe_verif <- setNames(
+  marginales_sexe$m_sexe,
+  as.character(marginales_sexe$sexe)
+)
+
+delta_marginale <- unname(
+  m_sexe_verif["Femme"]-m_sexe_verif["Homme"]
+)
+delta_alzheimer <- unname(
+  m_cell_3x2["Alzheimer","Femme"]-m_cell_3x2["Alzheimer","Homme"]
+)
+delta_dcl <- unname(
+  m_cell_3x2["DCL","Femme"]-m_cell_3x2["DCL","Homme"]
+)
+delta_controle <- unname(
+  m_cell_3x2["Contrôle","Femme"]-m_cell_3x2["Contrôle","Homme"]
+)
+delta_patients <- mean(c(delta_alzheimer,delta_dcl))
+
+# Vérifie que les coefficients du modèle ont exactement l'interprétation
+# Delta VD / Delta VI voulue puisque chaque colonne est normalisée à Delta X = 1.
+cibles_b <- c(
+  "(Intercept)"=m_grand_3x2,
+  "pathologie1"=unname(
+    m_path_3x2["Contrôle"]-
+      mean(m_path_3x2[c("Alzheimer","DCL")])
+  ),
+  "pathologie2"=unname(
+    m_path_3x2["DCL"]-m_path_3x2["Alzheimer"]
+  ),
+  "sexe1"=delta_marginale,
+  "pathologie1:sexe1"=delta_controle-delta_patients,
+  "pathologie2:sexe1"=delta_dcl-delta_alzheimer
+)
+
+stopifnot(isTRUE(all.equal(
+  unname(coef(fit_3x2)[names(cibles_b)]),
+  unname(cibles_b),
+  tolerance=1e-10
+)))
+
+poids_contraste_sexe_3x2 <- c("Homme"=-1,"Femme"=1)
+
+noms_contrastes_interaction_3x2 <- c(
+  "Variation de Femme − Homme : contrôle vs patients",
+  "Variation de Femme − Homme : DCL vs Alzheimer"
+)
+
+contrastes_interaction_3x2 <- bind_rows(
+  lapply(seq_along(poids_contrastes_path_3x2),function(i){
+    coefficients <- outer(
+      poids_contrastes_path_3x2[[i]],
+      poids_contraste_sexe_3x2
+    )
+    estimation <- sum(coefficients*m_cell_3x2)
+    sc <- estimation^2/sum(coefficients^2/n_cell)
+    data.frame(
+      contraste=noms_contrastes_interaction_3x2[i],
+      estimation=estimation,
+      sc=sc,
+      F=sc/mse_3x2,
+      p=pf(sc/mse_3x2,1,ddl_erreur_3x2,lower.tail=FALSE)
+    )
+  })
+)
+
+contrastes_interaction_3x2 <-
+  ajouter_omega_1ddl(contrastes_interaction_3x2)
+
+stopifnot(isTRUE(all.equal(
+  sum(contrastes_interaction_3x2$sc),
+  ss_interaction_3x2,
+  tolerance=1e-8
+)))
+
+# Avec le codage traitement, les tests de type III des termes principaux
+# deviennent des tests simples à la modalité de référence.
+tab_3x2_treatment <- anova_type_iii(
+  dat_3x2_treatment,
+  rappel_total ~ pathologie*sexe,
+  noms_3x2)
+
+comparaison_parametrage_3x2 <- tibble(
+  source=tab_3x2$source,
+  F_contrastes_planifies=tab_3x2$F,
+  F_codage_traitement=tab_3x2_treatment$F)
+
+table_coef_treatment_3x2 <- data.frame(
+  Coefficient=rownames(coef_treatment_3x2),
+  Estimation=coef_treatment_3x2[,"Estimate"],
+  p=coef_treatment_3x2[,"Pr(>|t|)"],
+  row.names=NULL)
+```
+
+## Table d'ANOVA pour un plan 2 × 2 {.titre-tres-long}
+
+::: {style="font-size:1.06em;"}
+
+Ici, on prends la SC de type III, chaque terme est donc testé en contrôlant pour tous les autres termes du modèle.
+
+```{r}
+#| label: tbl-anova-2x2-type-iii
+#| tbl-cap: "ANOVA factorielle 2 × 2 de type III."
+knitr::kable(
+  table_anova_affichee(tab_2x2),
+  align = c("l", "r", "c", "r", "r", "c", "r", "r"),
+  col.names = c("Source", "SC", "ddl", "CM", "F", "p", "$\\omega_p^2$", "$\\omega^2$"))
+```
+
+
+:::
+
+## Exemple de report statistique {.smaller .titre-tres-long}
+
+::: {style="font-size:1.075em;"}
+
+Une ANOVA factorielle intersujets $2\times2$ a été réalisée sur le score de rappel total cumulé ($RT_{cum}$, allant de 0 à 48). Le plan était équilibré, avec 24 personnes par cellule expérimentale, et ne comportait aucune covariable.
+
+L’interaction Pathologie × Sexe était significative, $F(1,`r df_err`)=`r fmt(res_aov$F[res_aov$effet=="Pathologie × Sexe"],2)`$, $p$ `r fmt_p(res_aov$p[res_aov$effet=="Pathologie × Sexe"])`. Elle explique environ $\omega^2=`r fmt(100*(ss_int-mse)/(ss_tot+mse),1)`\,\%$ de la variance totale dans la population, et $\omega_p^2=`r fmt(100*(ss_int-mse)/(ss_int+ss_err+mse),1)`\,\%$ de la variance de population une fois les effets principaux de la Pathologie et du Sexe contrôlés conjointement.
+
+Dans le groupe Alzheimer, les scores moyens étaient **pratiquement identiques** chez les hommes ($`r fmt(resume_cell |> filter(pathologie=="Alzheimer",sexe=="Homme") |> pull(moyenne),0)` \pm `r fmt(resume_cell |> filter(pathologie=="Alzheimer",sexe=="Homme") |> pull(et),0)`$) et les femmes ($`r fmt(resume_cell |> filter(pathologie=="Alzheimer",sexe=="Femme") |> pull(moyenne),0)` \pm `r fmt(resume_cell |> filter(pathologie=="Alzheimer",sexe=="Femme") |> pull(et),0)`$). Dans le groupe DCL, les femmes obtenaient en revanche un score moyen de $RT_{cum}$ plus élevé ($`r fmt(resume_cell |> filter(pathologie=="DCL",sexe=="Femme") |> pull(moyenne),0)` \pm `r fmt(resume_cell |> filter(pathologie=="DCL",sexe=="Femme") |> pull(et),0)`$) que les hommes ($`r fmt(resume_cell |> filter(pathologie=="DCL",sexe=="Homme") |> pull(moyenne),0)` \pm `r fmt(resume_cell |> filter(pathologie=="DCL",sexe=="Homme") |> pull(et),0)`$).
+
+*Note.* Les valeurs correspondent à la moyenne ± l’écart-type, arrondis à l’entier le plus proche.
+
+*Interprétation*. La différence associée au sexe dépend donc du caractère frontal (atteignant principalement la récupération mnésique dans la DCL) ou temporal interne (atteignant principalement le stockage mnésique en cas d'Alzheimer) de la pathologie.
+
+:::
+
+## Et pour un plan 3 × 2 ?
+
+On ajoute une troisième modalité à Pathologie : un groupe Contrôle de participants sains. Avec $n=24$ par cellule, le plan reste équilibré : $3\times2=6$ cellules expérimentales et $N=144$.
+
+En moyenne, les participants sains au RL/RI-16 ont un $RT_{cum}$ aux alentours de 45 mots rappelés ($m_H=44$ et $m_F=46$). Les femmes sont donc assez proches du plafond, **ce qui devrait inviter à revérifier les conditions d'application pour éventuellement privilégier du non-paramétrique ou du GLM**.
+
+| Ce qui change | Plan $2\times2$ | Plan $3\times2$ |
+|:---:|:---:|:---:|
+| $ddl_\text{Pathologie}$ | 1 | 2 |
+| $ddl_\text{P\times S}$ | 1 | 2 |
+| Comparaison unique ? | oui | Non ! 2 sous-composantes à 1 ddl |
+
+## Données {.smaller .titre-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+```{r}
+#| label: fig-profils-3x2
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Observations, distributions et profils moyens du plan équilibré 3 × 2.
+#|   <span class="note-figure"><em>Note.</em> Les points représentent les observations individuelles, les violons leur distribution dans chaque cellule et les rubans les IC à 95 % des moyennes. Le non-parallélisme des pentes d'effets simples annonce cette fois-ci 2 effets d'interaction.</span>
+#| fig-width: 8.85
+#| fig-height: 3.65
+#| out-width: "850px"
+
+profils_3x2 <- cellules_3x2 |>
+  mutate(
+    ic=qt(.975,n-1)*se,
+    borne_inf=moyenne-ic,
+    borne_sup=moyenne+ic
+  )
+
+# Les deux sexes sont légèrement décalés autour de chaque pathologie afin de
+# distinguer les six cellules sans modifier l'échelle du facteur Pathologie.
+decalage_sexe_3x2 <- c("Homme"=-.16,"Femme"=.16)
+
+profils_3x2 <- profils_3x2 |>
+  mutate(x_cell=as.numeric(pathologie)+
+    unname(decalage_sexe_3x2[as.character(sexe)]))
+
+# Chaque personne conserve une position horizontale déterministe dans sa
+# cellule. Le nuage reste ainsi stable à chaque rendu du cours.
+observations_3x2 <- dat_3x2 |>
+  group_by(pathologie,sexe) |>
+  mutate(
+    x_cell=as.numeric(pathologie)+
+      unname(decalage_sexe_3x2[as.character(sexe)]),
+    x_obs=x_cell+runif(n(), min=-.11, max=.11)) |>
+  ungroup()
+
+p <- plot_ly()
+
+# Violons : une distribution par cellule expérimentale.
+for (s in levels(dat_3x2$sexe)) {
+  for (pa in levels(dat_3x2$pathologie)) {
+    d <- filter(observations_3x2,sexe==s,pathologie==pa)
+    x_v <- unique(d$x_cell)
+    p <- p |> add_trace(data=d,x=rep(x_v,nrow(d)),y=~rappel_total,
+      type="violin",showlegend=FALSE,legendgroup=s,points=FALSE,
+      width=.28,spanmode="soft",bandwidth=1.15,scalemode="width",
+      fillcolor=cols_sexe[[s]],opacity=.17,
+      line=list(color=cols_sexe[[s]],width=1),hoverinfo="skip")
+  }
+}
+
+# Observations individuelles : le survol affiche l'identifiant et le score.
+for (s in levels(dat_3x2$sexe)) {
+  d <- filter(observations_3x2,sexe==s)
+  p <- p |> add_trace(data=d,x=~x_obs,y=~rappel_total,type="scatter",
+    mode="markers",name=s,legendgroup=s,
+    marker=list(color=cols_sexe[[s]],size=5.5,opacity=.54,
+      line=list(color="white",width=.5)),
+    text=~paste0(id,"<br>",pathologie," — ",sexe,
+      "<br>RT<sub>cum</sub> = ",fmt(rappel_total,1),"/48"),
+    hoverinfo="text")
+}
+
+# Profils moyens et rubans d'IC à 95 %.
+for (s in levels(dat_3x2$sexe)) {
+  d <- filter(profils_3x2,sexe==s)
+  couleur_ic <- ifelse(s=="Homme","rgba(91,91,231,.16)",
+    "rgba(217,83,79,.16)")
+  p <- p |> add_trace(data=d,x=~x_cell,y=~borne_inf,type="scatter",
+    mode="lines",showlegend=FALSE,legendgroup=s,
+    line=list(color="rgba(0,0,0,0)",width=0),hoverinfo="skip")
+  p <- p |> add_trace(data=d,x=~x_cell,y=~borne_sup,type="scatter",
+    mode="lines",showlegend=FALSE,legendgroup=s,fill="tonexty",
+    fillcolor=couleur_ic,
+    line=list(color="rgba(0,0,0,0)",width=0),hoverinfo="skip")
+  p <- p |> add_trace(data=d,x=~x_cell,y=~moyenne,type="scatter",
+    mode="lines+markers",showlegend=FALSE,legendgroup=s,
+    line=list(color=cols_sexe[[s]],width=4),
+    marker=list(color=cols_sexe[[s]],size=11,line=list(color="white",width=1.1)),
+    text=~paste0(pathologie," — ",sexe,"<br><b>n = ",n,"</b><br>m = ",
+      fmt(moyenne,1),"<br>s = ",fmt(ecart_type,1),"<br>IC 95 % [",
+      fmt(moyenne-ic,1)," ; ",fmt(moyenne+ic,1),"]"),hoverinfo="text")
+}
+p <- p |> layout(font=list(family="CMU Serif",color=couleurs$fond),
+  paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.82)",
+  xaxis=modifyList(axe_x("Pathologie"),list(
+    tickmode="array",tickvals=1:3,ticktext=levels(dat_3x2$pathologie),
+    range=c(.55,3.45))),
+  yaxis=axe_y("Rappel total cumulé (/48)",c(18,48)),
+  legend=list(orientation="h",x=.5,xanchor="center",y=1.10),
+  margin=list(l=62,r=18,t=40,b=48))
+cfg(p)
+```
+:::
+
+## Tests *F* des termes et test omnibus du modèle {.smaller .titre-long}
+
+::: {style="font-size:0.96em;"}
+
+:::: {.columns style="display:flex; align-items:center;"}
+::: {.column width="43%"}
+
+Le test omnibus de l'ANOVA factorielle entière a 5 ddl pour les 3 termes :
+
+:::
+::: {.column width="57%"}
+
+$$
+F_{\text{omnibus}}=
+\frac{
+(SS_{\text{Pathologie}}+
+SS_{\text{Sexe}}+
+SS_{\text{Pathologie}\times\text{Sexe}})/5
+}{
+SS_{\text{Aléatoire}}/df_{\text{Aléatoire}}
+}.
+$$
+:::
+::::
+
+```{r}
+#| label: tbl-tests-f-3x2
+# Test conjoint du modèle factoriel complet contre le modèle avec constante seule.
+ss_modele_3x2 <- attr(tab_3x2,"sc_totale") -
+  attr(tab_3x2,"sc_aleatoire")
+
+ddl_modele_3x2 <- attr(tab_3x2,"ddl_total") -
+  attr(tab_3x2,"ddl_aleatoire")
+
+F_omnibus_3x2 <- (ss_modele_3x2/ddl_modele_3x2) / mse_3x2
+
+p_omnibus_3x2 <- pf(F_omnibus_3x2, ddl_modele_3x2, ddl_erreur_3x2,
+  lower.tail=FALSE)
+
+tests_f_3x2 <- bind_rows(
+  tab_3x2 |>
+    transmute(Source=source,
+      Question=case_when(source=="Pathologie" ~ "Trois moyennes marginales toutes égales",
+        source=="Sexe" ~ "2 moyennes marginales toutes égales",
+        source=="Pathologie × Sexe" ~ "Profils additifs : mêmes pentes Femmes/Hommes"),
+      ddl_numerateur=ddl, F=F, p=p),
+  tibble(Source="Omnibus de l'ANOVA factorielle",
+    Question="Les 6 moyennes de cellule expérimentales sont égales",
+    ddl_numerateur=ddl_modele_3x2, F=F_omnibus_3x2, p=p_omnibus_3x2)) |>
+  transmute(Source, Question, ddl=paste0("(",ddl_numerateur," , ",ddl_erreur_3x2,")"), F=fmt(F,2), p=fmt_p(p))
+
+knitr::kable(tests_f_3x2,
+  align=c("c","c","c","c","c"),
+  col.names=c("Source", "$H_0$", "ddl",
+    "$F$", "$p$"))
+```
+
+→ Pathologie et l’interaction possèdent chacune 2 ddl. Leur test $F$ évalue deux différences de moyennes (pentes) simultanément.
+
+→ Le test omnibus teste si les six moyennes peuvent être considérées comme strictement égales sans préciser quel facteur ou quelle interaction explique leur différence.
+
+:::
+
+## Contrastes pour Pathologie {.smaller .titre-tres-long}
+
+::: {style="font-size:0.92em;"}
+
+Un facteur à trois modalités possède 2 ddl : on peut donc le décrire par **deux contrastes planifiés non redondants (orthogonaux)**.
+
+:::: {.columns style="display:flex; align-items:center;"}
+
+::: {.column width="50%"}
+
+| Modalité | Poids $c_1$ | Code $X_1$ | Poids $c_2$ | Code $X_2$ |
+|:---|---:|---:|---:|---:|
+| Alzheimer | $-1/2$ | $-1/3$ | $-1$ | $-1/2$ |
+| DCL | $-1/2$ | $-1/3$ | $+1$ | $+1/2$ |
+| Contrôle | $+1$ | $+2/3$ | $0$ | $0$ |
+
+:::
+
+::: {.column width="50%"}
+
+**Poids $c$**  
+→ module ANOVA
+
+**Codes $X$**  
+→ colonnes Excel et module Régression
+
+:::
+
+::::
+
+Les **poids de contraste** définissent directement les questions posées aux moyennes :
+
+$$
+C_1=\sum_j c_{1j}m_j
+=m_{\text{Contrôle}}
+-\frac{m_{\text{Alzheimer}}+m_{\text{DCL}}}{2},
+\qquad
+C_2=\sum_j c_{2j}m_j
+=m_{\text{DCL}}-m_{\text{Alzheimer}}.
+$$
+
+Ainsi $C_1$ compare les **Contrôles à la moyenne des deux groupes de patients** et $C_2$ compare directement **DCL à Alzheimer**.
+
+*Note.* JASP et jamovi utilisent les poids $c_j$ pour définir les contrastes dans le module ANOVA. Dans Excel ou quand on code explicitement le modèle linéaire (module régression), on crée directement ces colonnes $X_1$ et $X_2$ dans les données.
+:::
+
+## Contrastes et coefficients du modèle {.smaller .titre-tres-long}
+
+::: {style="font-size:0.82em;"}
+
+Les colonnes $X_1$ et $X_2$ représentent ces mêmes questions dans le modèle. On les normalise pour avoir :
+
+$$
+\Delta X_1=\frac23-\left(-\frac13\right)=1,
+\qquad
+\Delta X_2=\frac12-\left(-\frac12\right)=1.
+$$
+
+Tout comme les codes de contrastes, ces colonnes sont centrées et orthogonales :
+
+$$
+\langle X_1,X_2\rangle=
+\left(-\frac13\right)\left(-\frac12\right)
++\left(-\frac13\right)\left(\frac12\right)
++\frac23(0)=0.
+$$
+
+Les coefficients du modèle s'interprètent donc directement comme des différences de moyennes (de combien on monte ou descend sur la VD quand on fait "+1" sur la VI) :
+
+$$
+b_1=C_1,\qquad b_2=C_2,
+\qquad
+b=\frac{\Delta VD}{\Delta VI}
+=\frac{\Delta VD}{1}
+=\Delta VD.
+$$
+
+```{r}
+#| label: tbl-contrastes-pathologie-3x2
+table_contrastes_path_3x2 <- contrastes_pathologie_3x2 |>
+  transmute(Contraste = contraste, Estimate = fmt(estimation, 2),
+    ddl = paste0("(1 , ", ddl_erreur_3x2, ")"),
+    F = fmt(F, 2), p = fmt_p(p), omega2 = fmt(omega2, 3))
+
+knitr::kable(
+  table_contrastes_path_3x2,
+  align = c("c", "c", "c", "c", "c", "c"),
+  col.names = c("Comparaison planifiée", "Estimateur",
+    "ddl", "$F$", "$p$", "$\\omega^2$"))
+```
+
+:::
+
+## Les 2 ddl de l’interaction {.smaller .titre-tres-long}
+
+::: {style="font-size:0.94em;"}
+
+Pathologie est décrite par deux contrastes, $X_1$ et $X_2$, tandis que Sexe est décrit par le contraste $S=(-1/2,+1/2)$. L'interaction possède donc deux ddl pour $X_1\times S \text{ et } X_2\times S.$ Comme $\Delta X_1=\Delta X_2=\Delta S=1$, leurs coefficients sont directement des **différences de différences** :
+
+$$
+b_4=
+\left(m_{\text{Contrôle},F}-m_{\text{Contrôle},H}\right)
+-\frac{
+\left(m_{\text{Alzheimer},F}-m_{\text{Alzheimer},H}\right)
++
+\left(m_{\text{DCL},F}-m_{\text{DCL},H}\right)
+}{2},
+$$
+
+$$
+b_5=
+\left(m_{\text{DCL},F}-m_{\text{DCL},H}\right)
+-
+\left(m_{\text{Alzheimer},F}-m_{\text{Alzheimer},H}\right).
+$$
+
+```{r}
+#| label: tbl-contrastes-interaction-3x2
+
+table_contrastes_int_3x2 <- contrastes_interaction_3x2 |>
+  transmute(Composante = c("$X_1 \\times S$", "$X_2 \\times S$"),
+    Question = contraste,
+    Estimate = fmt(estimation, 2),
+    ddl = paste0("(1, ", ddl_erreur_3x2, ")"),
+    F = fmt(F, 2), p = fmt_p(p),
+    omega2 = fmt(omega2, 3))
+
+knitr::kable(table_contrastes_int_3x2,
+  align = c("c", "c", "c", "c", "c", "c", "c"),
+  col.names = c("Sous-composante", "Comparaison planifiée", "Estimateur", "ddl", "$F$", "$p$", "$\\omega^2$"))
+```
+
+
+Ces deux contrastes d'interaction indiquent **comment l'effet Femme − Homme varie le long de chacune des deux comparaisons planifiées de Pathologie**.
+:::
+
+## Les effets simples qualifient l’interaction {.smaller .titre-long}
+
+::: {style="font-size:1.08em;"}
+
+On teste maintenant Femme - Homme séparément dans chaque modalité du facteur Pathologie. Ces effets simples s'obtiennent par *treatment* et *dummy coding*. On corrige ici les comparaisons multiples par correction de Holm car nous n'effectuons qu'un petit nombre de comparaisons ciblées. 
+
+Holm est au moins aussi puissant que Bonferroni. De plus, on ne prends pas Tukey car nous ne sommes en train d'effectuer que trois tests et non pas toutes les 15 comparaisons par paires possibles.
+
+
+```{r}
+#| label: tbl-effets-simples-3x2
+
+table_effets_simples_3x2 <- effets_simples_sexe |>
+  transmute(Pathologie = pathologie,
+    Différence = fmt(difference, 2),
+    ddl = paste0("(1, ", ddl2, ")"),
+    F = fmt(F, 2), `p ajusté` = fmt_p(p_holm),
+    omega2 = fmt(omega2, 3))
+
+knitr::kable(table_effets_simples_3x2,
+  align = c("c", "c", "c", "c", "c", "c"),
+  col.names = c("Pathologie", "Femme − Homme",
+    "ddl", "$F$", "$p_{Holm}$", "$\\omega^2$"))
+```
+
+On peut ainsi décrire les effets simples après le test $F$ de l’interaction.
+
+:::
+
+## *ω²* et *ωₚ²* complètent les tests *F* {.smaller .titre-tres-long}
+
+:::: {style="font-size:0.96em;"}
+
+Puisqu'ici les tests de Pathologie et de Pathologie $\times$ Sexe se font sur plus d'un paramètre libre, il est **vraiment impératif de privilégier une taille d'effet corrigée ici**, donc l'$\omega^2$, ou sa version partielle qui contrôle pour les autres effets. 
+
+```{r}
+#| label: tbl-omega-3x2
+table_omega_3x2 <- tab_3x2 |>
+  transmute(Source=source,ddl=paste0("(",ddl,", ",ddl_erreur_3x2,")"),
+    F=fmt(F,2),p=fmt_p(p),
+    omega2=fmt(omega2,3),omega_p2=fmt(omega_p2,3))
+knitr::kable(table_omega_3x2,align=c("c","c","c","c","c","c"),
+  col.names=c("Source","ddl","$F$","$p$","$\\omega^2$","$\\omega_p^2$"))
+```
+
+::: {style="border:4.5px solid #E69F55; border-radius:6px; padding:.075em .6em; background:rgba(255,255,255,1.);"}
+
+→ $\omega^2$ rapporte l’effet à la variance totale corrigée ; les sources partagent le même dénominateur et ils somment à la variance sous $H_0$ estimée pour la population. Par exemple, l'$\omega^2$ pour l'interaction nous informe que celle-ci explique 1,3% de la variance dans la population (effet petit).
+
+→ $\omega_p^2$ rapporte l’effet à sa variance propre et à l’erreur ; sa valeur dépend davantage du plan et ils ne peuvent pas se sommer. Ici, l'$\omega_p^2$ pour l'interaction nous informe que celle-ci explique 19,1% de la variance dans la population une fois pris en compte l'effet déjà expliqué par la Pathologie le facteur Sexe biologique.
+:::
+
+::::
+
+## Le *treatment coding* (à apprendre) {.titre-tres-long}
+
+Le *treatment coding* est une autre manière de construire les colonnes du modèle dans le tableur, il permet d'obtenir les effets simples. Il généralise le *dummy coding* à plus de 2 modalités. En *treatment* on choisit une **modalité de référence qu'on code à 0 dans chaque colonne**. Les logiciels procèdent par l'ordre alphanumérique (i.e., Alzheimer serait ici le groupe codé 0 par JASP/jamovi).
+
+
+Si l'on choisit plutôt Contrôle comme référence, le facteur Pathologie à trois modalités nécessite deux colonnes : une colonne $P_A=1$ pour Alzheimer et 0 sinon ; une colonne $P_D=1$ pour DCL et 0 sinon. Pour Sexe, on peut ajouter une colonne $S_F$ qui vaudrait 1 pour les Femmes, 0 pour les Hommes. Les deux termes d'interactions sont alors simplement les colonnes créées par le produit $P_A \times S_F$ et $P_D \times S_F$.
+
+
+$$
+RT_{cum}=b_0+b_1P_A+b_2P_D+b_3S_F
++b_4P_AS_F+b_5P_DS_F.
+$$
+
+
+## Coefficients en *treatment coding* (à apprendre) {.titre-tres-long}
+
+| Coefficient | Interprétation avec Contrôle et Homme comme références | Estimateur $b$ |
+|:---:|:---:|:---:|
+| $b_0$ | $m_{\text{Contrôle},H}$ | `r fmt(coef(fit_3x2_treatment)["(Intercept)"],2)` |
+| $b_1$ | $m_{\text{Alzheimer},H}-m_{\text{Contrôle},H}$ | `r fmt(coef(fit_3x2_treatment)["pathologieAlzheimer"],2)` |
+| $b_2$ | $m_{\text{DCL},H}-m_{\text{Contrôle},H}$ | `r fmt(coef(fit_3x2_treatment)["pathologieDCL"],2)` |
+| $b_3$ | $m_{\text{Contrôle},F}-m_{\text{Contrôle},H}$ | `r fmt(coef(fit_3x2_treatment)["sexeFemme"],2)` |
+| $b_4$ | $(m_{\text{Alzheimer},F}-m_{\text{Alzheimer},H})-(m_{\text{Contrôle},F}-m_{\text{Contrôle},H})$ | `r fmt(coef(fit_3x2_treatment)["pathologieAlzheimer:sexeFemme"],2)` |
+| $b_5$ | $(m_{\text{DCL},F}-m_{\text{DCL},H})-(m_{\text{Contrôle},F}-m_{\text{Contrôle},H})$ | `r fmt(coef(fit_3x2_treatment)["pathologieDCL:sexeFemme"],2)` |
+
+Avec des codes $(0,1)$, on a aussi $\Delta X=1$. Les coefficients restent donc des différences de moyennes, mais **par rapport à la modalité de référence**, et non aux comparaisons théoriques choisies précédemment.
+
+## Le codage par contrastes planifiés {.titre-tres-long}
+
+::::: {style="font-size:0.90em;"}
+
+Un facteur à $k$ modalités possède $k-1$ ddl : il peut donc être décrit par $k-1$ **contrastes indépendants** avec ici $C_1$ la comparaison la moyenne des deux groupes de patients et Contrôle ; et $C_2$ la comparaison entre Alzheimer et DCL. 
+
+:::: {.columns style="display:flex; align-items:flex-start;"}
+::: {.column width="65%"}
+
+On représente les contrastes de **Pathologie** par les colonnes :
+
+| Modalité | $X_1$ : Patients vs Contrôle | $X_2$ : Alzheimer vs DCL |
+|:---|---:|---:|
+| Alzheimer | $-1/3$ | $-1/2$ |
+| DCL | $-1/3$ | $+1/2$ |
+| Contrôle | $+2/3$ | $0$ |
+
+:::
+::: {.column width="35%"}
+
+Pour **Sexe** :
+
+| Modalité | $S$ : Homme vs Femme |
+|:---|---:|
+| Homme | $-1/2$ |
+| Femme | $+1/2$ |
+
+:::
+::::
+
+Les colonnes sont **centrées**, **orthogonales** pour Pathologie, et normalisées de sorte que $\Delta X_1=\Delta X_2=\Delta S=1$.
+
+$$
+RT_{cum}=b_0+b_1X_1+b_2X_2+b_3S
++b_4X_1S+b_5X_2S.
+$$
+
+:::::
+
+## Coefficients en codage par contraste {.titre-tres-long}
+
+| Coefficient | Question représentée | *Estimate* |
+|:---:|:---:|:---:|
+| $b_0$ | moyenne générale | `r fmt(coef(fit_3x2)["(Intercept)"],2)` |
+| $b_1$ | Contrôle $-$ moyenne des Patients | `r fmt(coef(fit_3x2)["pathologie1"],2)` |
+| $b_2$ | DCL $-$ Alzheimer | `r fmt(coef(fit_3x2)["pathologie2"],2)` |
+| $b_3$ | Femme $-$ Homme | `r fmt(coef(fit_3x2)["sexe1"],2)` |
+| $b_4$ | effet $F-H$ : Contrôle $-$ Patients | `r fmt(coef(fit_3x2)["pathologie1:sexe1"],2)` |
+| $b_5$ | effet $F-H$ : DCL $-$ Alzheimer | `r fmt(coef(fit_3x2)["pathologie2:sexe1"],2)` |
+
+Comme chaque déplacement pertinent vaut une unité :
+
+$$
+\boxed{
+b=\frac{\Delta VD}{\Delta VI}
+=\frac{\Delta VD}{1}
+=\Delta VD
+}
+$$
+
+
+## Coefficients selon la paramétrisation {.smaller .titre-tres-long}
+
+::: {style="font-size:0.88em;"}
+
+Le **modèle ajusté et ses prédictions restent les mêmes** : changer la paramétrisation change surtout la **question représentée par chaque coefficient**.
+
+| Coefficient | **Contrastes planifiés centrés** | ***Treatment coding*** |
+|:---:|:---|:---|
+| $b_0$ | moyenne générale $m_{\cdot\cdot}$ | moyenne de la cellule de référence $m_{\text{Contrôle},H}$ |
+| $b_1$ | Contrôle $-$ moyenne des Patients | Alzheimer $-$ Contrôle, **chez les hommes** |
+| $b_2$ | DCL $-$ Alzheimer | DCL $-$ Contrôle, **chez les hommes** |
+| $b_3$ | Femme $-$ Homme, **toutes pathologies moyennées** | Femme $-$ Homme, **chez les contrôles** |
+| $b_4$ | variation de l'effet Femme $-$ Homme : **Contrôle vs Patients** | variation de l'effet Femme $-$ Homme : **Alzheimer vs Contrôle** |
+| $b_5$ | variation de l'effet Femme $-$ Homme : **DCL vs Alzheimer** | variation de l'effet Femme $-$ Homme : **DCL vs Contrôle** |
+
+:::
+
+## Coefficients selon la paramétrisation {.titre-tres-long}
+
+::: {style="font-size:1.14em;"}
+
+Pourquoi ?
+
+→ Avec des **contrastes centrés**, l'autre facteur est moyenné : les coefficients des effets principaux décrivent donc des **comparaisons marginales**.
+
+→ Avec un ***treatment coding***, l'autre facteur est fixé à sa **modalité de référence** : les coefficients décrivent donc des **effets simples**.
+
+Le codage ne change pas les moyennes prédites par le modèle ; il change le **point de référence $b_0$ et les différences de moyennes directement représentées par les coefficients**.
+
+:::
+
+## Représentation graphique de l'ANOVA factorielle {.smaller .titre-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+```{r}
+#| label: fig-codage-3x2
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Questions posées par un modèle factoriel 3 × 2 selon les contrastes choisis.
+#|   <span class="note-figure"><em>Note.</em> Avec les contrastes planifiés, Pathologie reçoit Alzheimer $(-1/3,-1/2)$, DCL $(-1/3,+1/2)$ et Contrôle $(+2/3,0)$ : les deux colonnes sont orthogonales et chacune représente un déplacement de $\Delta X=1$. Sexe reçoit $(-0{,}5;+0{,}5)$ en codage centré et $(0;1)$ en <em>dummy</em>.</span>
+#| fig-width: 8.85
+#| fig-height: 3.75
+#| fig-align: center
+#| out-width: "850px"
+#| echo: false
+
+# -----------------------------------------------------------------------------
+# RÉGLAGE MANUEL DES ENCARTS
+# -----------------------------------------------------------------------------
+reglages_encarts <- list(
+  b0=list(x=.61,ax=72,ay=-34,width=155),
+  rapport_path=list(x=.82,y=17.5,width=170),
+  rapport_sexe=list(x=2,y=17.5,width=170),
+  rapport_interaction=list(x=3.18,y=17.5,width=170),
+  p1=list(ax=105,ay=-38,width=205),
+  p2=list(ax=-105,ay=38,width=195),
+  sexe=list(ax=-105,ay=26,width=180),
+  interaction1=list(ax=110,ay=42,width=225),
+  interaction2=list(ax=-110,ay=-42,width=215)
+)
+
+# -----------------------------------------------------------------------------
+# DONNÉES REPRÉSENTÉES
+# -----------------------------------------------------------------------------
+decalage_sexe_codage <- c("Homme"=-.16,"Femme"=.16)
+set.seed(20260915)
+
+observations_codage_3x2 <- dat_3x2 |>
+  mutate(
+    x_cell=as.numeric(pathologie)+
+      unname(decalage_sexe_codage[as.character(sexe)]),
+    x_obs=x_cell+runif(n(),-.10,.10)
+  )
+
+demi_ic_codage <- qt(.975,ddl_erreur_3x2)*sqrt(mse_3x2/n_cell)
+
+cellules_codage_3x2 <- cellules_3x2 |>
+  arrange(sexe,pathologie) |>
+  mutate(
+    x_cell=as.numeric(pathologie)+
+      unname(decalage_sexe_codage[as.character(sexe)]),
+    borne_inf=moyenne-demi_ic_codage,
+    borne_sup=moyenne+demi_ic_codage
+  )
+
+m_path_codage <- setNames(
+  marginales_pathologie$m_path,
+  as.character(marginales_pathologie$pathologie)
+)
+m_sexe_codage <- setNames(
+  marginales_sexe$m_sexe,
+  as.character(marginales_sexe$sexe)
+)
+m_cell_codage <- xtabs(
+  moyenne~pathologie+sexe,
+  data=cellules_3x2
+)
+
+# -----------------------------------------------------------------------------
+# QUATRE COMBINAISONS DE CODAGE
+# c = contrastes planifiés de Pathologie ; d = codage dummy.
+# s = codage centré du Sexe ; d = codage dummy.
+# -----------------------------------------------------------------------------
+construire_etat_codage <- function(code_path,code_sexe) {
+  d <- dat_3x2
+
+  contrasts(d$pathologie) <- if (code_path=="c") {
+    contraste_pathologie_3x2(d$pathologie)
+  } else {
+    contr.treatment(
+      levels(d$pathologie),
+      base=which(levels(d$pathologie)=="Contrôle")
+    )
+  }
+
+  contrasts(d$sexe) <- if (code_sexe=="s") {
+    contraste_sexe_planifie(d$sexe)
+  } else {
+    contr.treatment(
+      levels(d$sexe),
+      base=which(levels(d$sexe)=="Homme")
+    )
+  }
+
+  tab <- anova_type_iii(
+    d,
+    rappel_total~pathologie*sexe,
+    noms_3x2
+  )
+  fit <- lm(rappel_total~pathologie*sexe,data=d)
+
+  list(
+    tab=tab,
+    b0=unname(coef(fit)[1]),
+    coefficients=coef(fit)
+  )
+}
+
+modeles_codage <- list(
+  cs=construire_etat_codage("c","s"),
+  cd=construire_etat_codage("c","d"),
+  ds=construire_etat_codage("d","s"),
+  dd=construire_etat_codage("d","d")
+)
+
+fmt_p_html <- function(p) ifelse(
+  p<.001,
+  "&lt; .001",
+  paste0("= ",sub("^0","",formatC(p,format="f",digits=3)))
+)
+
+# -----------------------------------------------------------------------------
+# FORMES ET ENCARTS
+# -----------------------------------------------------------------------------
+ligne_reference <- function(y) list(
+  type="line",xref="x",yref="y",
+  x0=.55,x1=3.45,y0=y,y1=y,
+  line=list(color=couleurs$fond,width=1.5,dash="dash"),
+  layer="below"
+)
+
+segment_effet <- function(x,y0,y1) list(
+  type="line",xref="x",yref="y",
+  x0=x,x1=x,y0=y0,y1=y1,
+  line=list(color=couleurs$fond,width=1.7,dash="dot"),
+  layer="above"
+)
+
+accolade_verticale <- function(x,y0,y1,largeur=.04) list(
+  type="path",xref="x",yref="y",
+  path=sprintf(
+    "M %.3f,%.3f L %.3f,%.3f L %.3f,%.3f L %.3f,%.3f",
+    x-largeur,y0,x,y0,x,y1,x-largeur,y1
+  ),
+  line=list(color=couleurs$fond,width=1.5,dash="dot"),
+  layer="above"
+)
+
+boite_rapport <- function(reglage,titre,question,table,source) {
+  ligne <- table[match(source,table$source),]
+  list(
+    x=reglage$x,y=reglage$y,xref="x",yref="y",
+    text=paste0(
+      "<b>",titre,"</b><br>",question,"<br>",
+      "<i>F</i>(",ligne$ddl,", ",ddl_erreur_3x2,") = ",
+      fmt(ligne$F,2),
+      " · <i>p</i> ",fmt_p_html(ligne$p),"<br>",
+      "ω² = ",fmt(ligne$omega2,3),
+      " · ω<sub>p</sub>² = ",fmt(ligne$omega_p2,3)
+    ),
+    showarrow=FALSE,xanchor="center",yanchor="top",align="center",
+    width=reglage$width,bgcolor="rgba(255,255,255,.97)",
+    bordercolor="rgba(63,77,83,.65)",borderwidth=1,borderpad=0,
+    font=list(size=8.1,color=couleurs$fond)
+  )
+}
+
+encart_effet <- function(x,y,texte,reglage) list(
+  x=x,y=y,xref="x",yref="y",
+  text=texte,showarrow=TRUE,arrowhead=0,arrowwidth=1,
+  arrowcolor=couleurs$fond,ax=reglage$ax,ay=reglage$ay,
+  align="center",width=reglage$width,
+  bgcolor="rgba(255,255,255,.97)",
+  bordercolor="rgba(63,77,83,.65)",
+  borderwidth=1,borderpad=1,
+  font=list(size=7.7,color=couleurs$fond)
+)
+
+libelle_intercept <- function(code_path,code_sexe) {
+  if (code_path=="c" && code_sexe=="s")
+    return("moyenne générale")
+  if (code_path=="c" && code_sexe=="d")
+    return("Hommes, pathologies moyennées")
+  if (code_path=="d" && code_sexe=="s")
+    return("Contrôle, sexes moyennés")
+  "Contrôle, Homme"
+}
+
+m_html <- function(pathologie=NULL,sexe=NULL) {
+  indice <- if (!is.null(pathologie) && !is.null(sexe)) {
+    paste0(pathologie,",",sexe)
+  } else if (!is.null(pathologie)) {
+    pathologie
+  } else if (!is.null(sexe)) {
+    sexe
+  } else {
+    "générale"
+  }
+  paste0("<i>m</i><sub>",indice,"</sub>")
+}
+
+effet_sexe_html <- function(pathologie=NULL) {
+  paste0(
+    "(",m_html(pathologie,"F"),
+    " − ",m_html(pathologie,"H"),")"
+  )
+}
+
+# -----------------------------------------------------------------------------
+# CONSTRUCTION DES COEFFICIENTS POUR UNE COMBINAISON DE CODAGE
+# -----------------------------------------------------------------------------
+construire_etat_visuel <- function(code_path,code_sexe) {
+  cle <- paste0(code_path,code_sexe)
+  modele <- modeles_codage[[cle]]
+  b0 <- modele$b0
+  noms_path <- levels(dat_3x2$pathologie)
+
+  # Pathologie est évaluée marginalement si Sexe est centré,
+  # et chez les hommes si Sexe est en dummy.
+  if (code_sexe=="s") {
+    valeurs_path <- m_path_codage[noms_path]
+    suffixe <- ""
+    contexte_path <- "sexes moyennés"
+    titre_test_path <- "Effet principal de Pathologie · 2 ddl"
+    question_path <- "test conjoint des deux colonnes, sexes moyennés"
+  } else {
+    valeurs_path <- m_cell_codage[noms_path,"Homme"]
+    suffixe <- ",H"
+    contexte_path <- "chez les hommes"
+    titre_test_path <- "Effet simple de Pathologie · 2 ddl"
+    question_path <- "test conjoint des deux colonnes chez les hommes"
+  }
+
+  coefficients_affiches <- list()
+
+  if (code_path=="c") {
+    # P1 : Contrôle - moyenne des Patients.
+    y_patients <- mean(valeurs_path[c("Alzheimer","DCL")])
+    y_controle <- unname(valeurs_path["Contrôle"])
+    formule_p1 <- if (code_sexe=="s") {
+      paste0(
+        m_html("Contrôle"),
+        " − [",m_html("Alzheimer")," + ",m_html("DCL"),"]/2"
+      )
+    } else {
+      paste0(
+        m_html("Contrôle","H"),
+        " − [",m_html("Alzheimer","H")," + ",
+        m_html("DCL","H"),"]/2"
+      )
+    }
+    texte_p1 <- paste0(
+      "<b>X<sub>1</sub> : Contrôle − Patients</b><br>",
+      "<i>b</i><sub>1</sub> = ",formule_p1,
+      " = ",fmt(y_controle-y_patients,2),
+      "<br>",contexte_path," · ΔX = 1"
+    )
+    coefficients_affiches$p1 <- list(
+      shapes=list(segment_effet(3.22,y_patients,y_controle)),
+      annotations=list(
+        encart_effet(
+          3.22,mean(c(y_patients,y_controle)),
+          texte_p1,reglages_encarts$p1
+        )
+      )
+    )
+
+    # P2 : DCL - Alzheimer.
+    y_a <- unname(valeurs_path["Alzheimer"])
+    y_d <- unname(valeurs_path["DCL"])
+    formule_p2 <- if (code_sexe=="s") {
+      paste0(m_html("DCL")," − ",m_html("Alzheimer"))
+    } else {
+      paste0(m_html("DCL","H")," − ",m_html("Alzheimer","H"))
+    }
+    texte_p2 <- paste0(
+      "<b>X<sub>2</sub> : DCL − Alzheimer</b><br>",
+      "<i>b</i><sub>2</sub> = ",formule_p2,
+      " = ",fmt(y_d-y_a,2),
+      "<br>",contexte_path," · ΔX = 1"
+    )
+    coefficients_affiches$p2 <- list(
+      shapes=list(segment_effet(1.50,y_a,y_d)),
+      annotations=list(
+        encart_effet(
+          1.50,mean(c(y_a,y_d)),
+          texte_p2,reglages_encarts$p2
+        )
+      )
+    )
+  } else {
+    # Dummy : Alzheimer - Contrôle et DCL - Contrôle.
+    for (i in 1:2) {
+      cible <- c("Alzheimer","DCL")[i]
+      id <- paste0("p",i)
+      y_cible <- unname(valeurs_path[cible])
+      y_ref <- unname(valeurs_path["Contrôle"])
+      formule <- if (code_sexe=="s") {
+        paste0(m_html(cible)," − ",m_html("Contrôle"))
+      } else {
+        paste0(m_html(cible,"H")," − ",m_html("Contrôle","H"))
+      }
+      texte <- paste0(
+        "<b>P<sub>",i,"</sub> : comparaison à Contrôle</b><br>",
+        "<i>b</i><sub>",i,"</sub> = ",formule,
+        " = ",fmt(y_cible-y_ref,2),
+        "<br>",contexte_path," · ΔX = 1"
+      )
+      coefficients_affiches[[id]] <- list(
+        shapes=list(segment_effet(i,y_ref,y_cible)),
+        annotations=list(
+          encart_effet(
+            i,mean(c(y_ref,y_cible)),
+            texte,reglages_encarts[[id]]
+          )
+        )
+      )
+    }
+  }
+
+  # Sexe : marginal si Pathologie est centrée, simple chez les contrôles
+  # si Pathologie est en dummy.
+  if (code_path=="c") {
+    valeurs_sexe <- m_sexe_codage[c("Homme","Femme")]
+    comparaison_sexe_html <- paste0(
+      m_html(sexe="F")," − ",m_html(sexe="H")
+    )
+    type_sexe <- "comparaison marginale Femme − Homme"
+    titre_test_sexe <- "Effet principal du Sexe · 1 ddl"
+    question_sexe <- "comparaison marginale Femme − Homme"
+  } else {
+    valeurs_sexe <- m_cell_codage[
+      "Contrôle",c("Homme","Femme")
+    ]
+    comparaison_sexe_html <- paste0(
+      m_html("Contrôle","F")," − ",m_html("Contrôle","H")
+    )
+    type_sexe <- "comparaison simple Femme − Homme"
+    titre_test_sexe <- "Effet simple du Sexe · 1 ddl"
+    question_sexe <- "comparaison Femme − Homme chez les contrôles"
+  }
+
+  texte_s <- paste0(
+    "<b>S : ",type_sexe,"</b><br>",
+    "<i>b</i><sub>S</sub> = ",comparaison_sexe_html,
+    " = ",fmt(
+      unname(valeurs_sexe["Femme"]-valeurs_sexe["Homme"]),2
+    ),
+    "<br>ΔS = 1"
+  )
+
+  coefficients_affiches$sexe <- list(
+    shapes=list(
+      accolade_verticale(
+        3.39,
+        unname(valeurs_sexe["Homme"]),
+        unname(valeurs_sexe["Femme"])
+      )
+    ),
+    annotations=list(
+      encart_effet(
+        3.39,mean(unname(valeurs_sexe)),
+        texte_s,reglages_encarts$sexe
+      )
+    )
+  )
+
+  # Interactions = différences de l'effet Femme − Homme.
+  delta <- m_cell_codage[,"Femme"]-m_cell_codage[,"Homme"]
+
+  if (code_path=="c") {
+    # X1*S : Contrôle vs moyenne des Patients.
+    int1 <- unname(
+      delta["Contrôle"]-
+        mean(delta[c("Alzheimer","DCL")])
+    )
+    formule_i1 <- paste0(
+      effet_sexe_html("Contrôle"),
+      " − [",effet_sexe_html("Alzheimer"),
+      " + ",effet_sexe_html("DCL"),"]/2"
+    )
+    texte_i1 <- paste0(
+      "<b>X<sub>1</sub> × S : différence de différences</b><br>",
+      "<i>b</i><sub>4</sub> = ",formule_i1,
+      " = ",fmt(int1,2)
+    )
+    coefficients_affiches$interaction1 <- list(
+      shapes=list(
+        accolade_verticale(
+          3.28,
+          m_cell_codage["Contrôle","Homme"],
+          m_cell_codage["Contrôle","Femme"]
+        ),
+        accolade_verticale(
+          1.28,
+          m_cell_codage["Alzheimer","Homme"],
+          m_cell_codage["Alzheimer","Femme"]
+        ),
+        accolade_verticale(
+          2.28,
+          m_cell_codage["DCL","Homme"],
+          m_cell_codage["DCL","Femme"]
+        )
+      ),
+      annotations=list(
+        encart_effet(
+          3.05,
+          mean(m_cell_codage["Contrôle",]),
+          texte_i1,reglages_encarts$interaction1
+        )
+      )
+    )
+
+    # X2*S : DCL vs Alzheimer.
+    int2 <- unname(delta["DCL"]-delta["Alzheimer"])
+    formule_i2 <- paste0(
+      effet_sexe_html("DCL"),
+      " − ",effet_sexe_html("Alzheimer")
+    )
+    texte_i2 <- paste0(
+      "<b>X<sub>2</sub> × S : différence de différences</b><br>",
+      "<i>b</i><sub>5</sub> = ",formule_i2,
+      " = ",fmt(int2,2)
+    )
+    coefficients_affiches$interaction2 <- list(
+      shapes=list(
+        accolade_verticale(
+          1.28,
+          m_cell_codage["Alzheimer","Homme"],
+          m_cell_codage["Alzheimer","Femme"]
+        ),
+        accolade_verticale(
+          2.28,
+          m_cell_codage["DCL","Homme"],
+          m_cell_codage["DCL","Femme"]
+        )
+      ),
+      annotations=list(
+        encart_effet(
+          1.65,
+          mean(c(
+            m_cell_codage["Alzheimer",],
+            m_cell_codage["DCL",]
+          )),
+          texte_i2,reglages_encarts$interaction2
+        )
+      )
+    )
+  } else {
+    # Dummy : chaque interaction compare une pathologie au Contrôle.
+    for (i in 1:2) {
+      cible <- c("Alzheimer","DCL")[i]
+      id <- paste0("interaction",i)
+      valeur <- unname(delta[cible]-delta["Contrôle"])
+      formule <- paste0(
+        effet_sexe_html(cible),
+        " − ",effet_sexe_html("Contrôle")
+      )
+      texte <- paste0(
+        "<b>P<sub>",i,"</sub> × S : différence d'effets simples</b><br>",
+        formule," = ",fmt(valeur,2)
+      )
+      coefficients_affiches[[id]] <- list(
+        shapes=list(
+          accolade_verticale(
+            i+.28,
+            m_cell_codage[cible,"Homme"],
+            m_cell_codage[cible,"Femme"]
+          ),
+          accolade_verticale(
+            3.31,
+            m_cell_codage["Contrôle","Homme"],
+            m_cell_codage["Contrôle","Femme"]
+          )
+        ),
+        annotations=list(
+          encart_effet(
+            i+.28,
+            mean(m_cell_codage[cible,]),
+            texte,reglages_encarts[[id]]
+          )
+        )
+      )
+    }
+  }
+
+  annotations_base <- list(
+    list(
+      x=reglages_encarts$b0$x,y=b0,xref="x",yref="y",
+      text=paste0(
+        "<i>b</i><sub>0</sub> = ",
+        libelle_intercept(code_path,code_sexe),
+        " = ",fmt(b0,2)
+      ),
+      showarrow=TRUE,arrowhead=0,arrowwidth=1,
+      arrowcolor=couleurs$fond,
+      ax=reglages_encarts$b0$ax,ay=reglages_encarts$b0$ay,
+      width=reglages_encarts$b0$width,
+      bgcolor="rgba(255,255,255,.97)",
+      bordercolor=couleurs$fond,borderwidth=1,borderpad=2,
+      font=list(size=8.7,color=couleurs$fond)
+    ),
+    boite_rapport(
+      reglages_encarts$rapport_path,
+      titre_test_path,question_path,
+      modele$tab,"Pathologie"
+    ),
+    boite_rapport(
+      reglages_encarts$rapport_sexe,
+      titre_test_sexe,question_sexe,
+      modele$tab,"Sexe"
+    ),
+    boite_rapport(
+      reglages_encarts$rapport_interaction,
+      "Interaction · 2 ddl",
+      "écarts à l’additivité, test invariant",
+      modele$tab,"Pathologie × Sexe"
+    )
+  )
+
+  list(
+    baseShapes=list(ligne_reference(b0)),
+    baseAnnotations=annotations_base,
+    coefficients=coefficients_affiches
+  )
+}
+
+# -----------------------------------------------------------------------------
+# ÉTATS GRAPHIQUES
+# -----------------------------------------------------------------------------
+codes_path_contrastes <- c(
+  "Alzheimer<br>(−1/3, −1/2)",
+  "DCL<br>(−1/3, +1/2)",
+  "Contrôle<br>(+2/3, 0)"
+)
+codes_path_dummy <- c(
+  "Alzheimer<br>(1, 0)",
+  "DCL<br>(0, 1)",
+  "Contrôle<br>(0, 0) · référence"
+)
+
+etats_layout <- list(
+  cs=c(
+    list(ticktext=codes_path_contrastes),
+    construire_etat_visuel("c","s")
+  ),
+  cd=c(
+    list(ticktext=codes_path_contrastes),
+    construire_etat_visuel("c","d")
+  ),
+  ds=c(
+    list(ticktext=codes_path_dummy),
+    construire_etat_visuel("d","s")
+  ),
+  dd=c(
+    list(ticktext=codes_path_dummy),
+    construire_etat_visuel("d","d")
+  )
+)
+
+axe_path <- list(
+  title=list(text="Contrastes de Pathologie : (X₁, X₂)",standoff=5),
+  tickmode="array",tickvals=1:3,ticktext=codes_path_contrastes,
+  range=c(.55,3.45),fixedrange=TRUE,zeroline=FALSE
+)
+
+# -----------------------------------------------------------------------------
+# TRACES PERMANENTES
+# -----------------------------------------------------------------------------
+p <- plot_ly()
+
+for (s in levels(dat_3x2$sexe)) {
+  for (pa in levels(dat_3x2$pathologie)) {
+    d <- filter(
+      observations_codage_3x2,
+      sexe==s,pathologie==pa
+    )
+    p <- p |> add_trace(
+      data=d,
+      x=rep(unique(d$x_cell),nrow(d)),
+      y=~rappel_total,
+      type="violin",showlegend=FALSE,
+      legendgroup=s,points=FALSE,width=.27,
+      spanmode="soft",bandwidth=1.15,
+      scalemode="width",
+      fillcolor=cols_sexe[[s]],opacity=.16,
+      line=list(color=cols_sexe[[s]],width=1),
+      hoverinfo="skip"
+    )
+  }
+}
+
+for (s in levels(dat_3x2$sexe)) {
+  d <- filter(observations_codage_3x2,sexe==s)
+  p <- p |> add_trace(
+    data=d,x=~x_obs,y=~rappel_total,
+    type="scatter",mode="markers",
+    name=s,legendgroup=s,
+    marker=list(
+      color=cols_sexe[[s]],size=5.2,opacity=.52,
+      line=list(color="white",width=.5)
+    ),
+    text=~paste0(
+      id,"<br>",pathologie," : ",sexe,
+      "<br>RT<sub>cum</sub> = ",fmt(rappel_total,1),"/48"
+    ),
+    hoverinfo="text"
+  )
+}
+
+for (s in levels(dat_3x2$sexe)) {
+  d <- filter(cellules_codage_3x2,sexe==s)
+  p <- p |> add_trace(
+    data=d,x=~x_cell,y=~moyenne,
+    type="scatter",mode="markers",
+    showlegend=FALSE,legendgroup=s,
+    marker=list(
+      color=cols_sexe[[s]],size=9,
+      line=list(color="white",width=1.1)
+    ),
+    text=~paste0(
+      pathologie," : ",sexe,
+      "<br><b>M = ",fmt(moyenne,2),"</b>",
+      "<br>IC 95 % [",fmt(borne_inf,2),
+      " ; ",fmt(borne_sup,2),"]"
+    ),
+    hoverinfo="text"
+  )
+}
+
+# -----------------------------------------------------------------------------
+# MENUS
+# -----------------------------------------------------------------------------
+menu_coefficient <- function(x,label,id,index) list(
+  type="buttons",direction="right",
+  active=-1,showactive=TRUE,
+  x=x,xanchor="left",y=1.39,yanchor="top",
+  font=list(size=7.7,color=couleurs$fond),
+  bgcolor="rgba(255,255,255,1)",
+  bordercolor=couleurs$orange,borderwidth=1,
+  buttons=list(
+    list(
+      method="skip",label=label,
+      args=list("coefficient",id,index)
+    )
+  )
+)
+
+menus_codage <- list(
+  list(
+    type="buttons",direction="right",
+    active=0,showactive=TRUE,
+    x=.01,xanchor="left",y=1.59,yanchor="top",
+    font=list(size=8.3,color=couleurs$fond),
+    bgcolor="rgba(255,255,255,1)",
+    bordercolor=couleurs$orange,borderwidth=1,
+    buttons=list(
+      list(
+        method="skip",
+        label="P : contrastes",
+        args=list("path","c")
+      ),
+      list(
+        method="skip",
+        label="P : dummy",
+        args=list("path","d")
+      )
+    )
+  ),
+  list(
+    type="buttons",direction="right",
+    active=0,showactive=TRUE,
+    x=.39,xanchor="left",y=1.59,yanchor="top",
+    font=list(size=8.3,color=couleurs$fond),
+    bgcolor="rgba(255,255,255,1)",
+    bordercolor=couleurs$orange,borderwidth=1,
+    buttons=list(
+      list(
+        method="skip",
+        label="S : contraste",
+        args=list("sex","s")
+      ),
+      list(
+        method="skip",
+        label="S : dummy",
+        args=list("sex","d")
+      )
+    )
+  ),
+  menu_coefficient(.01,"Coefficient X₁","p1",2),
+  menu_coefficient(.20,"Coefficient X₂","p2",3),
+  menu_coefficient(.39,"Coefficient S","sexe",4),
+  menu_coefficient(.56,"Interaction X₁ × S","interaction1",5),
+  menu_coefficient(.78,"Interaction X₂ × S","interaction2",6)
+)
+
+# -----------------------------------------------------------------------------
+# MISE EN PAGE
+# -----------------------------------------------------------------------------
+p <- p |> layout(
+  width=850,height=365,autosize=FALSE,
+  dragmode=FALSE,hovermode="closest",
+  font=list(family="CMU Serif",color=couleurs$fond),
+  paper_bgcolor="rgba(0,0,0,0)",
+  plot_bgcolor="rgba(255,255,255,.82)",
+  xaxis=axe_path,
+  yaxis=list(
+    title=list(
+      text="Rappel total cumulé (/48)",
+      standoff=5
+    ),
+    range=c(7,49),
+    tickmode="array",
+    tickvals=seq(20,45,5),
+    fixedrange=TRUE,
+    zeroline=FALSE,
+    gridcolor="rgba(63,77,83,.16)"
+  ),
+  shapes=etats_layout$cs$baseShapes,
+  annotations=etats_layout$cs$baseAnnotations,
+  legend=list(
+    orientation="h",x=.5,xanchor="center",
+    y=1.035,yanchor="bottom",
+    font=list(size=9.5)
+  ),
+  updatemenus=menus_codage,
+  margin=list(l=72,r=32,t=112,b=72)
+)
+
+# -----------------------------------------------------------------------------
+# JAVASCRIPT : COMBINAISON LIBRE DES CINQ COEFFICIENTS
+# -----------------------------------------------------------------------------
+etats_json <- jsonlite::toJSON(
+  etats_layout,
+  auto_unbox=TRUE,
+  null="null",na="null",digits=NA
+)
+
+script_codage <- paste0(
+  "function(el,x){",
+  "if(el._codage3x2Initialise)return;",
+  "el._codage3x2Initialise=true;",
+  "const states=",etats_json,";",
+  "const state={path:'c',sex:'s',coefficients:{p1:false,p2:false,sexe:false,interaction1:false,interaction2:false}};",
+  "function render(){",
+    "const s=states[state.path+state.sex];",
+    "let shapes=s.baseShapes.slice();",
+    "let annotations=s.baseAnnotations.slice();",
+    "Object.keys(state.coefficients).forEach(function(id){",
+      "if(state.coefficients[id]){",
+        "shapes=shapes.concat(s.coefficients[id].shapes);",
+        "annotations=annotations.concat(s.coefficients[id].annotations);",
+      "}",
+    "});",
+    "Plotly.relayout(el,{'xaxis.ticktext':s.ticktext,'shapes':shapes,'annotations':annotations});",
+  "}",
+  "el.on('plotly_buttonclicked',function(e){",
+    "const b=e.button||{};",
+    "const a=b.args||((b._input&&b._input.args)?b._input.args:[]);",
+    "if(!a||a.length<2)return;",
+    "if(a[0]==='path'){state.path=a[1];render();return;}",
+    "if(a[0]==='sex'){state.sex=a[1];render();return;}",
+    "if(a[0]==='coefficient'){",
+      "state.coefficients[a[1]]=!state.coefficients[a[1]];",
+      "render();",
+      "const cle='updatemenus['+a[2]+'].active';",
+      "const maj={};",
+      "maj[cle]=state.coefficients[a[1]]?0:-1;",
+      "Plotly.relayout(el,maj);",
+    "}",
+  "});",
+  "}"
+)
+
+p <- htmlwidgets::onRender(cfg(p),script_codage)
+p$elementId <- "plotly-codage-factoriel-3x2"
+p
+```
+:::
+
+## Notes de Figure {.titre-long}
+
+<div style="font-size:0.85em;">
+Avec les contrastes planifiés, $X_1=(-1/3,-1/3,+2/3)$ compare Contrôle à la moyenne des Patients et $X_2=(-1/2,+1/2,0)$ compare DCL à Alzheimer. Dans les deux cas, $\Delta X=1$, donc le coefficient associé est directement la différence de moyennes correspondante.
+
+Lorsque Sexe est centré, $S=(-0.5,+0.5)$ et $\Delta S=1$ : son coefficient est la différence marginale Femme − Homme. Lorsque l’un des facteurs passe en *dummy*, les coefficients deviennent des effets simples évalués dans la modalité de référence de l’autre facteur.
+
+Les poids de contraste utilisés pour tester les deux comparaisons planifiées sont respectivement $(-1/2,-1/2,+1)$ et $(-1,+1,0)$ : ils ne sont pas identiques aux colonnes $X$, mais ils sont normalisés pour que $\sum_jc_jm_j$ donne directement la différence de moyennes souhaitée.
+</div>
+
+**A apprendre.** L’effet principal de Pathologie correspond au test conjoint de $P_1$ et $P_2$ avec un codage contraste centré, donc à un test à 2 ddl lorsque Sexe est centré.
+
+## Compte rendu d'un plan 3 × 2 {.smaller .titre-tres-long}
+
+::: {style="font-size:1.10em;"}
+
+Une ANOVA factorielle intersujets 3 (Pathologie : Alzheimer, DCL, Contrôle) × 2 (Sexe : Homme, Femme) a été appliquée au rappel total cumulé du RL/RI-16 ($RT_{cum}$). Le plan était équilibré, avec 24 personnes par cellule expérimentale. Le facteur Pathologie était codé par codage *sum-to-zero*, avec Alzheimer (1,0), DCL (0,1) et Contrôle (-1,-1), tandis que Sexe utilisait un codage centré, Homme = -0.5, et Femme = +0.5.
+
+L’interaction Pathologie × Sexe était significative ($F(2, `r ddl_erreur_3x2`) = `r fmt(valeur(tab_3x2,"Pathologie × Sexe","F"),2)`$, $p$ `r fmt_p(valeur(tab_3x2,"Pathologie × Sexe","p"))`, $\omega^2 = `r fmt(valeur(tab_3x2,"Pathologie × Sexe","omega2"),3)`$ et $\omega_p^2 = `r fmt(valeur(tab_3x2,"Pathologie × Sexe","omega_p2"),3)`$). Le contraste planifié comparant la variation de la différence Femme − Homme entre la DCL et Alzheimer était `r ifelse(contrastes_interaction_3x2$p[2]<.05,"significatif","non significatif")` ($F(1, `r ddl_erreur_3x2`) = `r fmt(contrastes_interaction_3x2$F[2],2)`$, $p$ `r fmt_p(contrastes_interaction_3x2$p[2])`, $\omega^2 = `r fmt(contrastes_interaction_3x2$omega2[2],3)`$ et $\omega_p^2 = `r fmt(contrastes_interaction_3x2$omega_p2[2],3)`$).
+
+Après correction de Holm, l’effet simple du Sexe était `r ifelse(effets_simples_sexe$p_holm[effets_simples_sexe$pathologie=="DCL"]<.05,"significatif","non significatif")` dans la DCL ($F(1, `r ddl_erreur_3x2`) = `r fmt(effets_simples_sexe$F[effets_simples_sexe$pathologie=="DCL"],2)`$, $p_{\mathrm{Holm}}$ `r fmt_p(effets_simples_sexe$p_holm[effets_simples_sexe$pathologie=="DCL"])`, $\omega^2 = `r fmt(effets_simples_sexe$omega2[effets_simples_sexe$pathologie=="DCL"],3)`$ et $\omega_p^2 = `r fmt(effets_simples_sexe$omega_p2[effets_simples_sexe$pathologie=="DCL"],3)`$). Il était `r ifelse(effets_simples_sexe$p_holm[effets_simples_sexe$pathologie=="Alzheimer"]<.05,"significatif","non significatif")` dans Alzheimer ($F(1, `r ddl_erreur_3x2`) = `r fmt(effets_simples_sexe$F[effets_simples_sexe$pathologie=="Alzheimer"],2)`$, $p_{\mathrm{Holm}}$ `r fmt_p(effets_simples_sexe$p_holm[effets_simples_sexe$pathologie=="Alzheimer"])`, $\omega^2 = `r fmt(effets_simples_sexe$omega2[effets_simples_sexe$pathologie=="Alzheimer"],3)`$ et $\omega_p^2 = `r fmt(effets_simples_sexe$omega_p2[effets_simples_sexe$pathologie=="Alzheimer"],3)`$).
+
+Le test $F$ de Pathologie était significatif ($F(2, `r ddl_erreur_3x2`) = `r fmt(valeur(tab_3x2,"Pathologie","F"),2)`$, $p$ `r fmt_p(valeur(tab_3x2,"Pathologie","p"))`, $\omega^2 = `r fmt(valeur(tab_3x2,"Pathologie","omega2"),3)`$ et $\omega_p^2 = `r fmt(valeur(tab_3x2,"Pathologie","omega_p2"),3)`$), etc. Le test $F$ du Sexe était également significatif ($F(1, `r ddl_erreur_3x2`) = `r fmt(valeur(tab_3x2,"Sexe","F"),2)`$, $p$ `r fmt_p(valeur(tab_3x2,"Sexe","p"))`, $\omega^2 = `r fmt(valeur(tab_3x2,"Sexe","omega2"),3)`$ et $\omega_p^2 = `r fmt(valeur(tab_3x2,"Sexe","omega_p2"),3)`$).
+
+:::
+
+## Pourquoi ajuster sur l’âge ?
+
+::: {style="font-size:1.08em;"}
+Imaginons que nos données aient été récoltées sur de vrais sujets et qu'après collecte des données on se rende compte que l’âge moyen augmente du groupe contrôle vers les groupes pathologiques. Or, on sait que le $RT_{cum}$ tend aussi à diminuer avec l’âge.
+
+Réaliser une ANOVA brute mélange alors deux sources :
+
+$$
+\text{différence de pathologie observée}
+=\text{différence ajustée}+\text{part associée à l’âge}.
+$$
+
+**L’ANCOVA permet de comparer les moyennes à une même valeur de la covariable**, ici l'âge. Elle peut aussi réduire l’erreur si l’âge prédit une partie du $RT_{cum}$.
+:::
+
+## Le modèle ANCOVA (annexe)
+
+On conserve les **mêmes contrastes planifiés** pour le plan $3\times2$ :
+
+| Modalité | $X_1$ : Contrôle vs Patients | $X_2$ : DCL vs Alzheimer |
+|:---|---:|---:|
+| Alzheimer | $-1/3$ | $-1/2$ |
+| DCL | $-1/3$ | $+1/2$ |
+| Contrôle | $+2/3$ | $0$ |
+
+Pour Sexe, le contraste Femme vs Homme est codé $S=-0{,}5$ chez les hommes et $S=+0{,}5$ chez les femmes. On ajoute ensuite la covariable centrée $Âge_c=Âge-72$ :
+
+$$
+\begin{align}
+RT_{cum} = 
+& b_0+b_1X_1+b_2X_2+b_3S\\
+&+b_4(X_1\times S)+b_5(X_2\times S)+b_6Âge_c.
+\end{align}
+$$
+
+## Le modèle ANCOVA (annexe)
+
+::: {style="font-size:0.93em;"}
+
+→ $b_0$ est la moyenne prédite sur les six cellules à 72 ans.
+
+→ $b_1$ est la différence ajustée **Contrôle − moyenne des Patients** à 72 ans et $b_2$ la différence ajustée **DCL − Alzheimer**. Comme $\Delta X_1=\Delta X_2=1$, ces coefficients sont directement les différences ajustées de $RT_{cum}$.
+
+→ $b_3$ représente la différence ajustée **Femme − Homme** à 72 ans, puisque $\Delta S=1$.
+
+→ $b_4$ et $b_5$ sont les deux contrastes d'interaction correspondants, donc des différences de différences à 72 ans.
+
+→ **$b_6$ représente le changement prédit de $RT_{cum}$ pour une année supplémentaire, à Pathologie et Sexe fixés**.
+
+**Nota.** Avec une pente d’âge commune, changer le point de centrage de l’âge modifie $b_0$, mais laisse les autres coefficients et toutes les valeurs prédites inchangés. Ici, $\widehat b_6=`r fmt(b_age,3)`$ point par an, $p$ `r fmt_p(p_age)`.
+
+::: 
+
+## Représentation d'une ANCOVA (annexe) {.smaller .titre-tres-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:350px;"}
+```{r}
+#| label: fig-ancova-age
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Relation entre âge et $RT_{\text{cum}}$ en fonction de la pathologie et du sexe.
+#|   <span class="note-figure"><em>Note.</em> La couleur représente la pathologie ; le trait plein représente les hommes et le trait discontinu les femmes. Les six droites partagent ici une pente d’âge commune.</span>
+#| fig-width: 8.85
+#| fig-height: 3.65
+#| out-width: "850px"
+
+# Prédictions du modèle à pente commune sur l’étendue des âges observés.
+pred_age <- expand_grid(
+  age=seq(floor(min(dat_3x2_ancova$age)),ceiling(max(dat_3x2_ancova$age)),length.out=60),
+  pathologie=factor(levels(dat_3x2_ancova$pathologie),levels=levels(dat_3x2_ancova$pathologie)),
+  sexe=factor(levels(dat_3x2_ancova$sexe),levels=levels(dat_3x2_ancova$sexe))) |>
+  mutate(age_c=age-72)
+
+pred_age$pred <- predict(fit_ancova,newdata=pred_age)
+p <- plot_ly()
+
+# Observations et prédictions : les traces réelles sont retirées de la légende.
+for (g in levels(dat_3x2_ancova$pathologie)) for (s in levels(dat_3x2_ancova$sexe)) {
+  d <- filter(dat_3x2_ancova,pathologie==g,sexe==s)
+  pr <- filter(pred_age,pathologie==g,sexe==s)
+  nom <- paste(g,s,sep=" — ")
+  tiret <- ifelse(s=="Homme","solid","dash")
+  symbole <- ifelse(s=="Homme","circle","diamond")
+
+  p <- p |>
+    add_trace(data=d,x=~age,y=~rappel_total,type="scatter",mode="markers",
+      name=nom,legendgroup=nom,showlegend=FALSE,
+      marker=list(color=cols_path[[g]],symbol=symbole,size=5.5,opacity=.42),
+      text=~paste0(id,"<br>",pathologie," — ",sexe,"<br>Âge = ",fmt(age,1),
+        "<br>Rappel total = ",fmt(rappel_total,1)),
+      hoverinfo="text") |>
+    add_trace(data=pr,x=~age,y=~pred,type="scatter",mode="lines",
+      name=nom,legendgroup=nom,showlegend=FALSE,
+      line=list(color=cols_path[[g]],dash=tiret,width=2.5),
+      text=~paste0(nom,"<br>Âge = ",fmt(age,1),
+        "<br>Score prédit = ",fmt(pred,1)),
+      hoverinfo="text")
+}
+
+# Point fictif dans les limites du graphique :
+# une trace "lines" à un seul point affiche uniquement sa légende.
+x_leg <- mean(range(dat_3x2_ancova$age, na.rm=TRUE))
+y_leg <- 30
+
+for (g in levels(dat_3x2_ancova$pathologie)) {
+  p <- p |>
+    add_trace(
+      x=x_leg, y=y_leg, inherit=FALSE,
+      type="scatter", mode="lines", name=g,
+      legendgroup="pathologie",
+      legendgrouptitle=list(text="<b>Couleur : Pathologie</b>"),
+      visible=TRUE, showlegend=TRUE, hoverinfo="skip",
+      line=list(color=cols_path[[g]], width=3)
+    )
+}
+
+p <- p |>
+  add_trace(
+    x=x_leg, y=y_leg, inherit=FALSE,
+    type="scatter", mode="lines", name="Homme",
+    legendgroup="sexe",
+    legendgrouptitle=list(text="<b>Trait : Sexe</b>"),
+    visible=TRUE, showlegend=TRUE, hoverinfo="skip",
+    line=list(color=couleurs$fond, width=2.5, dash="solid")
+  ) |>
+  add_trace(
+    x=x_leg, y=y_leg, inherit=FALSE,
+    type="scatter", mode="lines", name="Femme",
+    legendgroup="sexe",
+    visible=TRUE, showlegend=TRUE, hoverinfo="skip",
+    line=list(color=couleurs$fond, width=2.5, dash="dash")
+  ) |>
+  layout(
+    font=list(family="CMU Serif", color=couleurs$fond),
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(255,255,255,.82)",
+    showlegend=TRUE,
+    xaxis=modifyList(
+      axe_x("Âge (années)"),
+      list(
+        range=c(
+          floor(min(dat_3x2_ancova$age, na.rm=TRUE))-1,
+          ceiling(max(dat_3x2_ancova$age, na.rm=TRUE))+1
+        ),
+        autorange=FALSE
+      )
+    ),
+    yaxis=axe_y("Rappel total cumulé (/48)", c(18,48)),
+    legend=list(
+      orientation="h", traceorder="grouped",
+      x=.5, xanchor="center", y=1.03, yanchor="bottom",
+      font=list(size=11),
+      itemclick=FALSE, itemdoubleclick=FALSE
+    ),
+    margin=list(l=62, r=18, t=85, b=48)
+  )
+
+cfg(p)
+```
+:::
+
+## Linéarité et forme fonctionelle du modèle (annexe) {.smaller .titre-tres-long}
+
+::: {style="font-size:1.0em;"}
+
+Dès qu'une VI est quantitative, il faut vérifier la **linéarité dans la forme fonctionnelle du modèle**. Un **modèle linéaire** n'est pas nécessairement une droite : il est linéaire lorsque ses paramètres interviennent dans une **somme pondérée**.
+
+Ainsi, $\widehat{RT}_{cum}=b_0+b_1\text{Âge}+b_2\text{Âge}^2$ reste linéaire dans ses paramètres, malgré sa forme courbe. En revanche,
+$\widehat{RT}_{cum}=b_0+\exp(b_1\text{Âge})$ est non linéaire dans $b_1$.
+
+Avec une VI quantitative, le modèle doit correctement représenter la relation conditionnelle entre la réponse et les prédicteurs. En pratique, le graphique des **résidus en fonction de la covariable ne doit montrer aucune tendance systématique**, notamment aucune courbure : les résidus doivent être également dispersés autour de 0 tout le long de la covariable.
+
+Dans un GLM, cette linéarité s'exprime sur l'échelle de la **fonction de lien** : $g\!\left(E[Y\mid X]\right)=b_0+b_1X+\cdots$
+
+Par exemple, avec un lien logit (GLM Bernoulli, Binomiale) : $\operatorname{logit}(\hat p)=b_0+b_1\text{Âge}.$
+
+:::
+
+## Forme fonctionnelle et diagnostic des résidus (annexe) {.smaller .titre-tres-long}
+
+::: {.graphique-r .plotly-stable style="--plotly-height:330px;"}
+```{r}
+#| label: fig-linearite-parametres
+#| fig-cap-location: bottom
+#| fig-cap: |
+#|   Forme fonctionnelle du modèle et diagnostic des résidus.
+#|   <span class="note-figure"><em>Note.</em> Les 4 premiers cas donnent les problèmes et corrections les plus classiques. J'ajoute une courbe *LOESS* au *subplot* de droite, elle n'est pas proposée par JASP et jamovi. Le lien logit est canonique (i.e., par défaut) pour Bernoulli et la binomiale, et le lien log l'est pour Poisson. En revanche, pour le modèle Gamma j'utilise log plutôt que son lien canonique 1/X car 1/X est souvent impossible à fitter en pratique. Notez aussi que pour les modèles gaussiens j'utilise des résidus standardisés, pour les autres on peut utiliser les résidus quantiles. La librairie performance automatise le choix des résidus sous R.</span>
+#| fig-width: 8.85
+#| fig-height: 3.45
+#| out-width: "850px"
+#| echo: false
+
+# Données pédagogiques : quatre erreurs de forme fonctionnelle, puis quatre GLM correctement spécifiés.
+set.seed(20260918); n_diag <- 250L
+d_quad <- tibble(x=sort(runif(n_diag,-3,3))) |> mutate(y=38+.7*x-1.0*x^2+rnorm(n_diag,0,1.5))
+d_exp <- tibble(x=sort(runif(n_diag,-1.6,1.6))) |> mutate(y=24+4*exp(x)+rnorm(n_diag,0,1.5))
+d_log <- tibble(x=sort(runif(n_diag,.5,18))) |> mutate(y=25+5*log(x)+rnorm(n_diag,0,1.5))
+d_pct <- tibble(x=sort(runif(n_diag,.03,.97))) |> mutate(y=35+3.5*qlogis(x)+rnorm(n_diag,0,1.6))
+d_bern <- tibble(x=sort(runif(n_diag,-2.7,2.7))) |> mutate(prob=plogis(-.35+1.15*x),y=rbinom(n(),1,prob),y_affichage=y+runif(n(),-.025,.025))
+d_bin <- tibble(x=sort(runif(n_diag,-2.5,2.5)),m=24L) |> mutate(prob=plogis(-.3+1.05*x),k=rbinom(n(),m,prob),y=k/m)
+d_gamma <- tibble(x=sort(runif(n_diag,-1.5,1.5))) |> mutate(mu=exp(3.05+.38*x),y=rgamma(n(),shape=14,scale=mu/14))
+d_pois <- tibble(x=sort(runif(n_diag,-1.5,1.5))) |> mutate(mu=exp(1.15+.72*x),y=rpois(n(),mu))
+
+# Les transformations de X sont connues : aucun coefficient n'est placé dans exp(), log() ou logit().
+cas_modeles <- list(
+  quadratique=list(bouton="Gaussien : X² omis",titre="Relation quadratique",comparaison=TRUE,data=d_quad,xlab="Covariable X",ylab="VD continue",modeles=list(
+    inadequat=list(fit=lm(y~x,data=d_quad),type="lm",equation="ŷ = b₀ + b₁X"),
+    corrige=list(fit=lm(y~x+I(x^2),data=d_quad),type="lm",equation="ŷ = b₀ + b₁X + b₂X²"))),
+  exponentielle=list(bouton="Gaussien : exp(X) omis",titre="Relation exponentielle",comparaison=TRUE,data=d_exp,xlab="Covariable X",ylab="VD continue",modeles=list(
+    inadequat=list(fit=lm(y~x,data=d_exp),type="lm",equation="ŷ = b₀ + b₁X"),
+    corrige=list(fit=lm(y~I(exp(x)),data=d_exp),type="lm",equation="ŷ = b₀ + b₁ exp(X)"))),
+  logarithmique=list(bouton="Gaussien : log(X) omis",titre="Relation logarithmique",comparaison=TRUE,data=d_log,xlab="Covariable X",ylab="VD continue",modeles=list(
+    inadequat=list(fit=lm(y~x,data=d_log),type="lm",equation="ŷ = b₀ + b₁X"),
+    corrige=list(fit=lm(y~log(x),data=d_log),type="lm",equation="ŷ = b₀ + b₁ log(X)"))),
+  pourcentage=list(bouton="Gaussien : logit(X) omis",titre="Covariable bornée entre 0 et 1",comparaison=TRUE,data=d_pct,xlab="Proportion X (0 à 1)",ylab="VD continue",modeles=list(
+    inadequat=list(fit=lm(y~x,data=d_pct),type="lm",equation="ŷ = b₀ + b₁X"),
+    corrige=list(fit=lm(y~qlogis(x),data=d_pct),type="lm",equation="ŷ = b₀ + b₁ logit(X)"))),
+  bernoulli=list(bouton="GLM Bernoulli, g() = logit()",titre="GLM Bernoulli correctement spécifié",comparaison=FALSE,data=d_bern,xlab="Covariable X",ylab="VD binaire",modeles=list(
+    corrige=list(fit=glm(y~x,data=d_bern,family=binomial(link="logit")),type="glm",residus="quantile",equation="logit(p) = b₀ + b₁X"))),
+  binomial=list(bouton="GLM binomial, g() = logit()",titre="GLM binomial correctement spécifié",comparaison=FALSE,data=d_bin,xlab="Covariable X",ylab="Proportion de succès",modeles=list(
+    corrige=list(fit=glm(cbind(k,m-k)~x,data=d_bin,family=binomial(link="logit")),type="glm",residus="quantile",equation="logit(̂p) = b₀ + b₁X"))),
+  gamma=list(bouton="GLM Gamma, g() = log()",titre="GLM Gamma correctement spécifié",comparaison=FALSE,data=d_gamma,xlab="Covariable X",ylab="VD positive",modeles=list(
+    corrige=list(fit=glm(y~x,data=d_gamma,family=Gamma(link="log")),type="glm",residus="deviance",equation="log(ŷ) = b₀ + b₁X"))),
+  poisson=list(bouton="GLM Poisson, g() = log()",titre="GLM de Poisson correctement spécifié",comparaison=FALSE,data=d_pois,xlab="Covariable X",ylab="VD : Décompte (entier ≥ 0)",modeles=list(
+    corrige=list(fit=glm(y~x,data=d_pois,family=poisson(link="log")),type="glm",residus="quantile",equation="log(ŷ) = b₀ + b₁X"))))
+
+# Prédictions, IC et résidus adaptés à chaque modèle.
+fabriquer_etat <- function(cas,modele) {
+  d <- cas$data; fit <- modele$fit
+  grille <- tibble(x=seq(min(d$x),max(d$x),length.out=180))
+  if (modele$type=="lm") {
+    pr <- predict(fit,newdata=grille,interval="confidence")
+    pred <- unname(pr[,"fit"]); inf <- unname(pr[,"lwr"]); sup <- unname(pr[,"upr"])
+    residus <- rstandard(fit); libelle_residus <- "Résidus standardisés"
+  } else {
+    pr <- predict(fit,newdata=grille,type="link",se.fit=TRUE); inv <- family(fit)$linkinv
+    pred <- inv(pr$fit); inf <- inv(pr$fit-qnorm(.975)*pr$se.fit); sup <- inv(pr$fit+qnorm(.975)*pr$se.fit)
+    if (identical(modele$residus,"quantile")) {
+      famille <- family(fit)$family; valeur_predite <- fitted(fit)
+      if (famille=="binomial") {
+        succes <- if ("k" %in% names(d)) d$k else d$y
+        essais <- if ("m" %in% names(d)) d$m else 1L
+        F_inf <- pbinom(succes-1,size=essais,prob=valeur_predite)
+        F_sup <- pbinom(succes,size=essais,prob=valeur_predite)
+      } else if (famille=="poisson") {
+        F_inf <- ppois(d$y-1,lambda=valeur_predite)
+        F_sup <- ppois(d$y,lambda=valeur_predite)
+      } else stop("Les résidus quantiles ne sont pas définis pour cette famille.")
+      u <- runif(nrow(d),min=F_inf,max=F_sup); epsilon <- 1e-10
+      residus <- qnorm(pmin(pmax(u,epsilon),1-epsilon))
+      libelle_residus <- "Résidus quantiles randomisés"
+    } else {
+      residus <- residuals(fit,type="deviance")
+      libelle_residus <- "Résidus de déviance"}}
+  y_obs <- if ("y_affichage" %in% names(d)) d$y_affichage else d$y
+  d_res <- tibble(x=d$x,residu=as.numeric(residus))
+  x_lisse <- seq(min(d$x),max(d$x),length.out=140)
+  lissage <- loess(residu~x,data=d_res,span=.72,degree=2)
+  residu_lisse <- as.numeric(predict(lissage,newdata=tibble(x=x_lisse)))
+  plage_y <- range(c(y_obs,inf,sup),finite=TRUE); marge_y <- max(diff(plage_y)*.07,.08)
+  plage_y <- plage_y+c(-marge_y,marge_y)
+  borne_r <- max(abs(c(d_res$residu,residu_lisse)),na.rm=TRUE)*1.12
+  list(x_obs=d$x,y_obs=y_obs,y_reelle=d$y,x_pred=grille$x,pred=pred,inf=inf,sup=sup,
+    x_res=d_res$x,residus=d_res$residu,x_lisse=x_lisse,residu_lisse=residu_lisse,
+    xrange=range(grille$x),yrange=plage_y,rrange=c(-borne_r,borne_r),
+    xlab=cas$xlab,ylab=cas$ylab,rlab=libelle_residus,equation=modele$equation)}
+
+# La seconde graine rend la randomisation des résidus quantiles reproductible.
+set.seed(20260919)
+etats <- lapply(cas_modeles,function(cas)
+  lapply(cas$modeles,function(modele) fabriquer_etat(cas,modele)))
+
+p <- plot_ly(); indice_trace <- 0L
+for (id_cas in names(cas_modeles)) for (specification in names(cas_modeles[[id_cas]]$modeles)) {
+  e <- etats[[id_cas]][[specification]]
+  actif <- id_cas==names(cas_modeles)[1] && specification==names(cas_modeles[[id_cas]]$modeles)[1]
+  col <- if (specification=="inadequat") couleurs$orange else couleurs$turquoise
+  p <- p |>
+    add_trace(x=c(e$x_pred,rev(e$x_pred)),y=c(e$inf,rev(e$sup)),type="scatter",mode="lines",xaxis="x",yaxis="y",visible=actif,showlegend=FALSE,hoverinfo="skip",fill="toself",fillcolor=plotly::toRGB(col,.14),line=list(width=0)) |>
+    add_trace(x=e$x_obs,y=e$y_obs,customdata=e$y_reelle,type="scatter",mode="markers",xaxis="x",yaxis="y",visible=actif,showlegend=FALSE,marker=list(color=col,size=4.2,opacity=.35,line=list(color="white",width=.4)),hovertemplate="X = %{x:.2f}<br>Y observé = %{customdata:.2f}<extra></extra>") |>
+    add_trace(x=e$x_pred,y=e$pred,type="scatter",mode="lines",xaxis="x",yaxis="y",visible=actif,showlegend=FALSE,line=list(color=col,width=3.2),hovertemplate="X = %{x:.2f}<br>Prédiction = %{y:.2f}<extra></extra>") |>
+    add_trace(x=e$xrange,y=c(0,0),type="scatter",mode="lines",xaxis="x2",yaxis="y2",visible=actif,showlegend=FALSE,line=list(color="rgba(63,77,83,.65)",width=1.2,dash="dash"),hoverinfo="skip") |>
+    add_trace(x=e$x_res,y=e$residus,type="scatter",mode="markers",xaxis="x2",yaxis="y2",visible=actif,showlegend=FALSE,marker=list(color=col,size=4,opacity=.38),hovertemplate="X = %{x:.2f}<br>Résidu = %{y:.2f}<extra></extra>") |>
+    add_trace(x=e$x_lisse,y=e$residu_lisse,type="scatter",mode="lines",xaxis="x2",yaxis="y2",visible=actif,showlegend=FALSE,line=list(color=col,width=3),hovertemplate="Lissage = %{y:.2f}<extra></extra>")
+  etats[[id_cas]][[specification]]$traces <- indice_trace+0:5; indice_trace <- indice_trace+6L
+  etats[[id_cas]][[specification]]$titre <- paste0("<b>",cas_modeles[[id_cas]]$titre,"</b>",
+    if (cas_modeles[[id_cas]]$comparaison) paste0(" et ",ifelse(specification=="inadequat","spécification inadéquate","spécification corrigée")) else "","<br>",e$equation)
+}
+
+# Le menu de correction disparaît pour les GLM.
+boutons_cas <- lapply(names(cas_modeles),function(id)
+  list(method="skip",label=cas_modeles[[id]]$bouton,args=list("cas",id)))
+boutons_spec <- list(
+  list(method="skip",label="Inadéquate",args=list("specification","inadequat")),
+  list(method="skip",label="Corrigée",args=list("specification","corrige")))
+id_initial <- names(cas_modeles)[1]
+spec_initiale <- names(cas_modeles[[id_initial]]$modeles)[1]
+etat_initial <- etats[[id_initial]][[spec_initiale]]
+
+p <- p |> layout(width=850,height=330,autosize=FALSE,dragmode=FALSE,hovermode="closest",
+  font=list(family="CMU Serif",color=couleurs$fond),
+  paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.82)",
+  xaxis=modifyList(axe_x(etat_initial$xlab),list(domain=c(0,.46),range=etat_initial$xrange)),
+  yaxis=modifyList(axe_y(etat_initial$ylab,etat_initial$yrange),list(domain=c(0,0.94))),
+  xaxis2=modifyList(axe_x(etat_initial$xlab),list(domain=c(.57,1),range=etat_initial$xrange,anchor="y2")),
+  yaxis2=modifyList(axe_y(etat_initial$rlab,etat_initial$rrange),list(domain=c(.03,.94),anchor="x2")), showlegend=FALSE,
+  annotations=list(
+    list(x=.5,y=1.43,xref="paper",yref="paper",text=etat_initial$titre,showarrow=FALSE,xanchor="center",yanchor="middle",font=list(size=13.5,color=couleurs$fond)),
+    list(x=.23,y=1.075,xref="paper",yref="paper",text="<b>Observations et modèle</b>",showarrow=FALSE,font=list(size=12.5)),
+    list(x=.785,y=1.075,xref="paper",yref="paper",text="<b>Résidus selon la covariable</b>",showarrow=FALSE,font=list(size=12.5))),
+  updatemenus=list(
+    list(type="dropdown",direction="down",active=0,x=.01,xanchor="left",y=1.34,yanchor="top",font=list(size=8.2),bgcolor="rgba(255,255,255,1)",bordercolor=couleurs$orange,borderwidth=1,buttons=boutons_cas),
+    list(type="buttons",direction="right",active=0,visible=TRUE,x=.99,xanchor="right",y=1.27,yanchor="top",font=list(size=8.2),bgcolor="rgba(255,255,255,1)",bordercolor=couleurs$orange,borderwidth=1,buttons=boutons_spec)),
+  margin=list(l=58,r=25,t=105,b=34))
+
+# Le JavaScript conserve le cas sélectionné et met à jour les deux panneaux.
+champs_affichage <- c("traces","titre","xlab","ylab","rlab","xrange","yrange","rrange")
+etats_affichage <- lapply(etats,function(cas)
+  lapply(cas,function(e) e[champs_affichage]))
+configuration_cas <- lapply(cas_modeles,function(cas)
+  list(comparaison=cas$comparaison,defaut=names(cas$modeles)[1]))
+etats_json <- jsonlite::toJSON(etats_affichage,auto_unbox=TRUE,null="null",na="null",digits=NA)
+configuration_json <- jsonlite::toJSON(configuration_cas,auto_unbox=TRUE,null="null",na="null")
+
+script_diagnostics <- paste0(
+  "function(el,x){if(el._diagnosticsInitialises)return;el._diagnosticsInitialises=true;",
+  "const etats=",etats_json,";const cfgCas=",configuration_json,";",
+  "const ordre=Object.keys(etats);",
+  "const choix={cas:ordre[0],specification:cfgCas[ordre[0]].defaut};",
+  "function afficher(){const s=etats[choix.cas][choix.specification];",
+  "const v=Array(el.data.length).fill(false);s.traces.forEach(i=>v[i]=true);",
+  "Plotly.restyle(el,{visible:v});Plotly.relayout(el,{",
+  "'annotations[0].text':s.titre,'xaxis.title.text':s.xlab,",
+  "'yaxis.title.text':s.ylab,'xaxis2.title.text':s.xlab,",
+  "'yaxis2.title.text':s.rlab,'xaxis.range':s.xrange,",
+  "'xaxis2.range':s.xrange,'yaxis.range':s.yrange,",
+  "'yaxis2.range':s.rrange});}",
+  "el.on('plotly_buttonclicked',function(e){const b=e.button||{};",
+  "const a=b.args||((b._input&&b._input.args)?b._input.args:[]);",
+  "if(!a||a.length<2)return;",
+  "if(a[0]==='cas'){choix.cas=a[1];",
+  "choix.specification=cfgCas[choix.cas].defaut;",
+  "Plotly.relayout(el,{'updatemenus[1].visible':cfgCas[choix.cas].comparaison,",
+  "'updatemenus[1].active':0});afficher();return;}",
+  "if(a[0]==='specification'&&cfgCas[choix.cas].comparaison){",
+  "choix.specification=a[1];afficher();}});}")
+
+p <- htmlwidgets::onRender(cfg(p),script_diagnostics)
+p$elementId <- "plotly-linearite-diagnostics"; p
+```
+:::
+
+## Homogénéité des pentes {.titre-tres-long}
+
+::: {style="font-size:1.10em;"}
+Historiquement, l’ANCOVA classique suppose une même pente d’âge (i.e., elle est additive) dans toutes les cellules. Cette hypothèse se teste donc ici en ajoutant les interactions entre les facteurs et l’âge ce que, en syntaxe R, on note :
+
+$$
+Y \sim A \times B \times \text{Âge}
+$$
+
+Cette notation présuppose que les effets marginaux/principaux sont aussi présents dans le modèle (on appelle ça le principe de marginalité).
+
+Pour notre exemple, le test simultanné des pentes d'interactions entre âge et facteurs donne $p\ `r fmt_p(p_pentes)`$. Si une interaction $\text{Âge}\times A$ ou $\text{Âge}\times B$ est significative alors il faut conclure que l’effet de la pathologie ou du sexe varie avec l’âge et décomposer l'interaction.
+
+:::
+
+## Ce qu'une covariable change (annexe) {.titre-tres-long}
+
+::: {style="font-size:0.92em;"}
+|  | ANOVA | ANCOVA |
+|:---|:---:|:---:|
+| Valeur comparée | moyennes observées | moyennes ajustées à âge égal |
+| Variance expliquée | $R^2=`r fmt(r2_aov,3)`$ | $R^2=`r fmt(r2_ancova,3)`$ |
+| Interprétation | différences brutes | différences conditionnelles à l’âge |
+
+L’ANCOVA ajuste les différences entre groupes sur une covariable susceptible d’être confondue avec la Pathologie et peut **réduire l’erreur résiduelle** si cette covariable prédit la VD.
+
+→ On évite les VI fortement redondantes (**colinéarité**). Centrer une covariable facilite l’interprétation de l’ordonnée à l’origine et des interactions ; la centrer-réduire exprime l'effet standardisé donc en **unités de VD par écart-type de VI**.
+
+→ Aux conditions de l’ANOVA s’ajoute la **bonne spécification de la forme fonctionnelle** : le modèle doit correctement représenter la relation conditionnelle entre la covariable et la VD.
+:::
+
+## Exemple de report pour une ANCOVA (annexe) {.smaller .titre-tres-long}
+
+Une ANCOVA factorielle intersujets a examiné les effets de la Pathologie (Alzheimer, DCL, Contrôle) et du Sexe (Homme, Femme) sur le rappel total cumulé ($RT_{\text{cum}}$) du RL/RI-16, avec l’âge centré à 72 ans comme covariable. Le modèle autorisant une pente d’âge propre à chacune des six cellules améliorait `r ifelse(p_pentes<.05,"significativement","peu et de façon non significative")` l’ajustement ($F(`r test_pentes$Df[2]`, `r test_pentes$Res.Df[2]`)=`r fmt(test_pentes$F[2],2)`$, $p$ `r fmt_p(p_pentes)`). `r ifelse(p_pentes<.05,"Ce résultat invite à modéliser des pentes d’âge différentes selon les cellules.","Nous avons retenu le modèle à pente d’âge commune.")`
+
+Après ajustement pour l’âge, l’interaction Pathologie × Sexe était `r ifelse(valeur(tab_ancova,"Pathologie × Sexe","p")<.05,"significative","non significative")` ($F(2, `r ddl_erreur_ancova`)=`r fmt(valeur(tab_ancova,"Pathologie × Sexe","F"),2)`$, $p$ `r fmt_p(valeur(tab_ancova,"Pathologie × Sexe","p"))`, $\omega_p^2=`r fmt(res_ancova$omega2p[res_ancova$source=="Pathologie × Sexe"],3)`$). `r ifelse(valeur(tab_ancova,"Pathologie × Sexe","p")<.05,"La différence moyenne entre femmes et hommes variait donc selon la pathologie.","Les données apportaient des éléments insuffisants pour conclure que la différence moyenne entre femmes et hommes variait selon la pathologie.")`
+
+Le contraste planifié comparant cette différence entre la DCL et la maladie d’Alzheimer était `r ifelse(contraste_int_ancova$p<.05,"significatif","non significatif")` ($F(1, `r ddl_erreur_ancova`)=`r fmt(contraste_int_ancova$F,2)`$, $p$ `r fmt_p(contraste_int_ancova$p)`, $\omega_p^2=`r fmt(contraste_int_ancova$omega2p,3)`$).
+
+Après correction de Holm, l’effet simple ajusté du Sexe était `r ifelse(effets_simples_ancova$p_holm[effets_simples_ancova$pathologie=="DCL"]<.05,"significatif","non significatif")` dans la DCL ($F(1, `r ddl_erreur_ancova`)=`r fmt(effets_simples_ancova$F[effets_simples_ancova$pathologie=="DCL"],2)`$, $p_{\mathrm{Holm}}$ `r fmt_p(effets_simples_ancova$p_holm[effets_simples_ancova$pathologie=="DCL"])`, $\omega_p^2=`r fmt(effets_simples_ancova$omega2p[effets_simples_ancova$pathologie=="DCL"],3)`$). Il était `r ifelse(effets_simples_ancova$p_holm[effets_simples_ancova$pathologie=="Alzheimer"]<.05,"significatif","non significatif")` dans la maladie d’Alzheimer ($F(1, `r ddl_erreur_ancova`)=`r fmt(effets_simples_ancova$F[effets_simples_ancova$pathologie=="Alzheimer"],2)`$, $p_{\mathrm{Holm}}$ `r fmt_p(effets_simples_ancova$p_holm[effets_simples_ancova$pathologie=="Alzheimer"])`, $\omega_p^2=`r fmt(effets_simples_ancova$omega2p[effets_simples_ancova$pathologie=="Alzheimer"],3)`$).
+
+Et on complètera le tout d'un graphe, ou de plusieurs si l'on intègre plus de VI que ce cours. " de telle manière à mettre le report des statistiques entre parenthèses
+
+## La méthode Barona (à apprendre) {.smaller .titre-tres-long}
+
+Comme l’ANCOVA, la **méthode de Barona** utilise un modèle linéaire. Ici, c'est pour tenir compte de caractéristiques sociodémographiques. Elle situe ici **le score d’une personne par rapport au score attendu pour son profil**. On estime le modèle dans une **grande population de référence**. Pour le troisième rappel libre du RL/RI-16, Van der Linden et al. (2004) proposent :
+
+$$
+\widehat{RL3}=15{,}19-0{,}99\times\text{Âge}+0{,}39\times\text{NSC}-0{,}50\times\text{Sexe}.
+$$
+
+Les prédicteurs suivent les **codes de l’étalonnage** :
+
+| Prédicteur | Codage |
+|:---|:---|
+| Âge | 16–29 ans = 1 ; 30–49 = 2 ; 50–64 = 3 ; 65–74 = 4 ; > 74 = 5 |
+| Niveau socioculturel | < 12 ans d’études = 1 ; 12 ans avec diplôme = 2 ; études supérieures = 3 |
+| Sexe | Femme = 1 ; Homme = 2 |
+
+**Exemple :** pour une femme de 70 ans, de NSC 2, le modèle prédit **11,51 mots** au RL3.
+
+## Du score observé au résidu standardisé (à apprendre) {.smaller .titre-tres-long}
+
+<div style="font-size:0.94em;">
+
+Le **résidu** mesure l'écart entre score observé et score attendu. On le standardise par l'écart-type résiduel du modèle :
+
+$$
+e_i=Y_i-\widehat Y_i,
+\qquad
+z_i=\frac{e_i}{RMSE}.
+$$
+
+Ici, $RMSE=2{,}23$. Pour un score observé de 6 et un score prédit de 11,51 :
+
+$$
+z_i=\frac{6-11{,}51}{2{,}23}\approx-2{,}47.
+$$
+
+Le score se situe donc **2,47 écarts-types résiduels sous la valeur attendue**. Avec des résidus approximativement normaux, $z=-1{,}96$ correspond au centile 2,5 ; Van der Linden et al. utilisent plutôt $z=-1{,}645$, soit le **5e centile** en unilatéral gauche.
+
+**Attention à la régression à la moyenne.** Les prédictions du modèle sont ramenées vers la moyenne générale. Ce phénomène devient particulièrement important lorsque le modèle normatif explique peu de variance, donc lorsque **sa taille d'effet omnibus est faible** : les différences attendues entre profils sont alors fortement atténuées.
+
+Ici, $z=-2{,}47$ franchit les deux seuils : le score est **inhabituellement faible relativement au profil attendu**.
+
+</div>
+
+::: {.notes}
+On utilise l’écart-type résiduel fourni par l’étalonnage. Dans une régression linéaire classique, il correspond à la racine du carré moyen résiduel : sqrt(SS_erreur / ddl_erreur). Le terme RMSE désigne ici cette version corrigée des degrés de liberté.
+
+Le *z* normatif repose sur une approximation de la distribution conditionnelle. Un intervalle de prédiction individuel exact tient aussi compte de l’incertitude sur les coefficients.
+
+Van der Linden et al. (2004) retiennent un seuil conventionnel de −1,65, proche du centile 5. Le seuil −1,96 présenté ici correspond au centile 2,5. Le résultat contribue au bilan clinique et doit être interprété avec les autres observations.
+:::
+
+## Danger de la régression à la moyenne {.smaller .titre-tres-long}
+
+<div style="font-size:0.99em;">
+
+Le modèle linéaire prédit la **VD moyenne attendue pour un profil sociodémographique**, pas le niveau antérieur propre à chaque personne. Les prédictions subissent une **régression vers la moyenne** : elles sont généralement moins extrêmes que les niveaux individuels réels.
+
+| Niveau antérieur réel | Conséquence possible |
+|:---|:---|
+| Très élevé | score attendu trop faible → **déficit sous-estimé** |
+| Très faible | score attendu trop élevé → **déficit surestimé** |
+
+**Exemple :** une femme de 70 ans, de NSC 2, a un score attendu de 11,51 mots au RL3. Si elle obtenait auparavant 15 mots mais en rappelle aujourd’hui 12, son résidu standardisé vaut :
+
+$$
+z=\frac{12-11{,}51}{2{,}23}\approx 0{,}22.
+$$
+
+Son score actuel se situe donc très près de la valeur attendue pour son profil, malgré une baisse individuelle de 3 mots. Avec un seuil fixé au **centile $C_{2,5}$**, soit $z=-1{,}96$ (ou au $C_5$ soit $z=-1.645$), on conclut ici à l'absence de score anormalement faible puisque $0{,}22>-1{,}96$ ou $>-1.645$. Dans les deux cas, c'est un faux négatif relativement au déclin individuel.
+
+</div>
+
+## Danger de la régression à la moyenne {.titre-tres-long}
+
+<div style="font-size:1.22em;">
+**Moins le modèle normatif explique de variance** (taille d'effet omnibus faible), plus ses prédictions restent proches de la moyenne et plus cette régression à la moyenne peut biaiser l'estimation d'un déclin individuel.
+
+Le *z*-score conditionnel situe donc la **performance actuelle relativement aux normes**. L'évaluation d'un déclin individuel doit aussi s'appuyer sur **l'histoire clinique** : le patient reste son propre contrôle.
+
+</div>
+
+## À retenir {.smaller}
+
+<div style="font-size:1.12em;">
+Un plan factoriel estime des **effets principaux**, une **interaction** et des **effets simples**. Une interaction est une différence de différences : soit entre effets simples, soit entre une modalité et la tendance centrale d'échantillon.
+Avec plus d'une variable explicative, on distingue les tailles d'effets non corrigées par les ddl pour leur biais (e.g., $\eta^2$ et $R^2$ qui décrivent l’échantillon) et celles corrigées ($\omega^2$ et $R_{ajusté}^2$) qui corrigent une partie du biais, sauf si on seuil leurs valeurs négatives à 0. 
+
+On distingue aussi les tailles d'effets partielles, indicées par $p$ et qui ne somment pas à la variance totale. Les tailles d'effet partielles expriment la variance en contrôlant pour l'effet des autres variables explicatives. Les tailles d'effet classiques, elles, somment à la variance totale.
+
+On utilise des tests à un seul et unique paramètre libre pour décomposer les tests $F$ des facteurs, c'est nécessaire pour savoir quelles différences de moyenne sont réellement significatives. L’ANCOVA compare les groupes à covariable égale, mais elle exige une forme correcte dans la relation conditionnelle (somme pondérée et le *plot* des résidus en fonction de la covariable doit suivre une droite horizontale nulle).
+
+</div>
+
+## Références utiles
+
+→ Barona, A., Reynolds, C. R., & Chastain, R. A. (1984). A demographically based index of premorbid intelligence for the WAIS-R. *Journal of Consulting and Clinical Psychology, 52*(5), 885–887. [doi:10.1037/0022-006X.52.5.885](https://doi.org/10.1037/0022-006X.52.5.885)
+
+→ Olejnik, S., & Algina, J. (2003). Generalized eta and omega squared statistics. *Psychological Methods, 8*, 434–447. [doi:10.1037/1082-989X.8.4.434](https://doi.org/10.1037/1082-989X.8.4.434)
+
+→ Van der Linden, M., Coyette, F., Poitrenaud, J., Kalafat, M., Calicis, F., Wyns, C., Adam, S., et les membres du GREMEM. (2004). L’épreuve de rappel libre/rappel indicé à 16 items (RL/RI-16). Dans M. Van der Linden, S. Adam, A. Agniel, C. Baisset Mouly et les membres du GREMEM (dir.), *L’évaluation des troubles de la mémoire : présentation de quatre tests de mémoire épisodique (avec leur étalonnage)*. Solal. [Texte intégral](https://www.researchgate.net/publication/299512918)

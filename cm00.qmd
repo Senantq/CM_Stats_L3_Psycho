@@ -1,0 +1,119 @@
+---
+title: "CM n°0 : Organisation"
+subtitle: "Plan du cours, contenu, références et examen"
+
+author:
+  - name: "Quentin Sénant"
+    email: "quentin.senant@univ-grenoble-alpes.fr"
+    affiliations:
+      - name: "Université Grenoble Alpes"
+
+lang: fr-FR
+date-format: "D MMMM YYYY"
+description: "Cours magistral de statistique inférentielle — Licence 3 Psychologie"
+---
+
+## Plan du cours {.sommaire .sommaire-cm0}
+
+::: {.sommaire-grille}
+::: {.sommaire-colonne .sommaire-gauche}
+[1.]{.sommaire-numero} [Introduction]{.sommaire-texte}
+
+[2.]{.sommaire-numero} [Les bases de l’ANOVA]{.sommaire-texte}
+
+[3.]{.sommaire-numero} [L’ANOVA à 1 facteur]{.sommaire-texte}
+:::
+
+::: {.sommaire-colonne .sommaire-droite}
+[4.]{.sommaire-numero} [L’ANOVA factorielle]{.sommaire-texte}
+
+[5.]{.sommaire-numero} [Conditions d’application du modèle linéaire]{.sommaire-texte}
+
+[6.]{.sommaire-numero} [Contrastes]{.sommaire-texte}
+:::
+:::
+
+## Contenu {.smaller}
+
+Il est construit par un psychologue pour de futurs psychologues et est donc illustré à l'aide de données issues de la littérature.
+
+La psychologie est parfois qualifiée de science « molle ». Cette idée reçue masque son rôle dans le développement des méthodes statistiques. La variabilité des comportements humains a conduit la discipline à contribuer aux statistiques inférentielles et à l’apprentissage statistique (l'IA).
+
+Le traitement de données est donc une matière centrale à la psychologie qu'elle soit de clinique, de recherche empirique ou de modélisation.
+
+On peut citer les travaux de Jacob Cohen sur les tailles d’effet, de Karl Jöreskog sur les équations structurelles (usage pour les questionnaires), de Charles Spearman sur l’analyse factorielle (usage pour les questionnaires), ainsi que ceux de Geoffrey Hinton, David Rumelhart, et Demis Hassabis en intelligence artificielle... -> tous sont passés par la psycho
+
+## Références sympa {.references-compactes}
+
+### Cliniques
+
+→  Stirn, S. *L'évaluation neuropsychologique en clinique adulte*. ISBN 978-2-1005-7032-4. (liste de tests neuropsys, recap sur les fonctions/modèles/pathos neurocognitives, avec références vers des normes francophones, explique un peu le $z$-score, les percentiles, les principes de fidélité, validité, etc. très bon pour futurs neuropsys et psy TCC)
+
+### Analyse de construit psychologique {.references-compactes}
+
+→ Hervé Guyon, [*Les modèles d'Equations Structurelles avec R et JASP*](https://www.researchgate.net/publication/332763974_Les_modeles_d'Equations_Structurelles_avec_R_et_JASP_version_4_janvier_2020). (cours niveau doctorat no maths, un peu de tutos JASP et code R, bon à utiliser pour l'analyse de variables latentes, donc de construits psychologiques mesurés au travers des items d'un questionnaire comme une dimension de la personnalité, ou une fonction cognitive au travers d'une batterie d'épreuves neuropsys, etc.)
+
+## Références sympa {.references-compactes}
+<div style="font-size:0.94em;">
+### Mixtes
+
+→ Hervé Guyon, [*L’inférence avec JASP : fréquentiste et bayésienne*](https://www.researchgate.net/publication/336284800_L'inference_avec_JASP_frequentiste_et_bayesienne). (cours niveau L3 de Brest no maths, un peu de tutos JASP, pas mal d'explications sur des indices sympa de la psycho, philo fréquentiste et bayésienne objective présentées ; ref française gratuite)
+
+### Fréquentistes {.references-compactes}
+
+→ Correll J. et al. *Analyse des données*. ISBN 978-2-8073-0554-0. (présentation du modèle linéaire : comment faire le lien  $z$-score->$t$-tests->ANOVAs->régression et ANCOVA ? Un peu de maths mais qui restent accessibles à tout clinicien et expérimentaliste)
+
+→ Lakens, D. [*Improving your Statistical Inferences*](https://lakens.github.io/statistical_inferences/) (philo et méthode des stats fréquentistes, no maths, bon pour futurs expérimentalistes)
+
+→ Dunn, P. K. & Smyth, G. K. *Generalized Linear Models With Examples in R*. ISBN 978-1-4419-0117-0. (le modèle linéaire généralisé : pour fréquentistes velus ; utile pour faire de la modélisation sur des variables susceptibles de montrer des effets de plancher ou de plafond, et/ou variables hétéroscédastes)
+
+### Bayésianistes
+
+→ Yvonnick Noël, [cours de licence de l’Université Rennes 2](http://yvonnick.noel.free.fr/cours/), ISBN 978-2-7598-1736-8. (bon pour futurs expérimentalistes, beaucoup de formules de maths, axé proba et bayésiannisme)
+
+→ Kruschke, J. K. *Doing Bayesian Data Analysis: A Tutorial with R, JAGS, and Stan*. ISBN 978-0-1240-5888-0. (niveau doctorat et plus, très bon pour la recherche expérimentale et pour la modélisation en sciences cognitives)
+
+→ Gelman, A. *et al.* *Bayesian Data Analysis*. ISBN 978-1-4398-4095-5. (pour bayésiannistes définitivement velus)
+</div>
+
+## Tutos sympa et vidéos Youtube {.references-compactes}
+
+### Tutos JASP
+
+→ JASP team, [How to use JASP](https://jasp-stats.org/how-to-use-jasp/) (pour n'importe qui et vos stages)
+
+### Chaînes Youtube
+
+→ JASP, [*JASP team*](https://www.youtube.com/@JASPStatistics) (pour ceux qui, comme moi, galèrent à trouver où cliquer)
+
+→ Very Normal, [*@very-normal*](https://www.youtube.com/@very-normal) (philo et méthodes des stats)
+
+→ Dustin Fife, [*@simplistics_stats*](https://www.youtube.com/@simplistics_stats) (pas mal de visualisation sous R et de modèles niveau master-doctorat, un peu d'initiation au langage R)
+
+### Tutos pour coder ses stats sous R
+
+→ Librairie tidyverse [*R for Data Science*](https://r4ds.hadley.nz/) (pour apprendre à charger les données, les filtrer, les visualiser)
+
+→ Librairie ggplot2, [*Elegant Graphics for Data Analysis*](https://ggplot2-book.org/) (pour faire de beaux graphiques)
+
+→ Librairie glmmTMB, [*Vignettes*](https://cran.r-project.org/web/packages/glmmTMB/) (pour faire du GLM fréquentiste)
+
+→ Librairie brms, [*Vignettes*](https://cran.r-project.org/web/packages/brms/index.html) (pour faire du GLM bayésien)
+
+## Examen {.smaller}
+
+<div style="font-size:0.98em;">
+
+→ Outils statistiques utiles au psychologue clinicien : *z*-score, normes percentiles, tailles d’effet standardisées ($d$ de Cohen et $\omega_p^2$).
+
+→ Logique de l’inférence populationnelle : distribution nulle, *p*-value comme aire sous $H_0$, seuil $\alpha$ comme statistique critique, correction de Bessel et degrés de liberté.
+
+→ Décomposition de la variance dans une ANOVA $2 \times 2$, comparaisons par paires et corrections de Holm et Bonferroni, savoir interpréter un report statistique.
+
+→ Conditions d’application de l'ANOVA et visualisation de leur respect.
+
+→ Hypothèse *point-sharp null* et distinction entre significativité statistique et pratique.
+
+→ Quelques questions de cours issues des sujets de TD. Quelques questions sur les lois de proba (quand les utiliser).
+
+</div style>

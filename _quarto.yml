@@ -1,0 +1,33 @@
+project:
+  type: default
+  output-dir: _site
+  resources:
+    - "assets/**"
+  post-render: bash scripts/export-pdf.sh
+
+format:
+  revealjs:
+    embed-resources: true #mettre à true lors de l'export pour que l'html soit autonome
+    include-before-body:
+      - file: assets/plotly-reveal-resize.html
+    theme: [default, theme.scss]
+    width: 960
+    height: 540
+    margin: 0
+    slide-number: "c/t"
+    transition: none
+    controls: true
+    progress: true
+    center: false
+    link-external-newwindow: true
+    pdf-max-pages-per-slide: 1
+    pdf-separate-fragments: false
+
+execute:
+  echo: false
+  warning: false
+  message: false
+  cache: false
+  freeze: auto
+
+lang: fr
